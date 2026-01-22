@@ -1,0 +1,48 @@
+[tools]
+go = "1.23"
+"aqua:golangci/golangci-lint" = "1.64.5"
+"aqua:mvdan/gofumpt" = "0.7.0"
+lefthook = "1.11.5"
+
+[env]
+GOFLAGS = "-mod=mod"
+
+[tasks.fmt]
+description = "Format Go code with gofumpt"
+run = "gofumpt -l -w -extra ."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test -v -race -count=1 ./..."
+
+[tasks.build]
+description = "Build the application"
+run = """
+go build -ldflags="-s -w \
+  -X github.com/open-cli-collective/cpm/internal/version.Version=dev \
+  -X github.com/open-cli-collective/cpm/internal/version.Commit=$(git rev-parse --short HEAD) \
+  -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o cpm ./cmd/cpm
+"""
+
+[tasks.ci]
+description = "Run all CI checks"
+run = """
+set -e
+mise run fmt
+mise run vet
+mise run lint
+mise run test
+mise run build
+"""
+
+[settings]
+task_output = "prefix"
