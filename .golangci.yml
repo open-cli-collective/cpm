@@ -1,0 +1,53 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+
+  errcheck:
+    check-type-assertions: true
+
+  gofumpt:
+    extra-rules: true
+
+  govet:
+    enable-all: true
+
+linters:
+  enable:
+    # Error handling
+    - errcheck
+    - errorlint
+
+    # Code quality
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Style and formatting
+    - gofmt
+    - gofumpt
+    - unconvert
+
+    # Complexity
+    - gocyclo
+
+    # Security
+    - gosec
+
+    # Best practices
+    - revive
+    - misspell
+    - gocritic
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - gosec
