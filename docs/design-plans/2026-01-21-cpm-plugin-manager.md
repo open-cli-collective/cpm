@@ -23,7 +23,7 @@ The implementation uses a flat model architecture built on the Bubble Tea framew
 - **gofumpt**: A stricter formatter for Go code (extends gofmt with additional style rules)
 - **GoReleaser**: A release automation tool for Go projects that builds cross-platform binaries and creates release artifacts
 - **release-please**: A GitHub Action that automates release PR creation and changelog generation based on conventional commits
-- **Scope (in Claude context)**: The installation boundary for a plugin—either "local" (user-wide, stored in `~/.claude`) or "project" (repository-specific, stored in `.claude/` directory)
+- **Scope (in Claude context)**: The installation boundary for a plugin—"user" (global, stored in `~/.claude/settings.json`), "project" (repository-specific and shared, stored in `.claude/settings.json`), or "local" (repository-specific but NOT shared, stored in `.claude/settings.local.json`). cpm focuses on local and project scopes for clarity
 - **Marketplace (in Claude context)**: A source repository of plugins, configured in Claude Code's settings
 - **Cobra**: A popular Go CLI framework (noted as explicitly NOT used in this design)
 - **Homebrew**: A package manager for macOS and Linux
