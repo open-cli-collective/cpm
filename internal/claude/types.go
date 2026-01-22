@@ -19,12 +19,12 @@ const (
 type InstalledPlugin struct {
 	ID          string `json:"id"`
 	Version     string `json:"version"`
-	Scope       Scope  `json:"scope"`
-	Enabled     bool   `json:"enabled"`
 	InstallPath string `json:"installPath"`
 	InstalledAt string `json:"installedAt"`
 	LastUpdated string `json:"lastUpdated"`
 	ProjectPath string `json:"projectPath,omitempty"`
+	Scope       Scope  `json:"scope"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // AvailablePlugin represents a plugin available from a marketplace.
@@ -33,9 +33,9 @@ type AvailablePlugin struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
 	MarketplaceName string `json:"marketplaceName"`
+	Source          any    `json:"source,omitempty"` // Can be string or object depending on plugin type
 	Version         string `json:"version,omitempty"`
 	InstallCount    int    `json:"installCount,omitempty"`
-	Source          any    `json:"source,omitempty"` // Can be string or object depending on plugin type
 }
 
 // PluginList is the response from `claude plugin list --json --available`.

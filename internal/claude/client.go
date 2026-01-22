@@ -41,6 +41,7 @@ func (c *realClient) ListPlugins(includeAvailable bool) (*PluginList, error) {
 		args = append(args, "--available")
 	}
 
+	// #nosec G204 -- args are hardcoded, not user input
 	cmd := exec.Command(c.claudePath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -65,6 +66,7 @@ func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
 		args = append(args, "--scope", string(scope))
 	}
 
+	// #nosec G204 -- args are constructed safely from enum scope
 	cmd := exec.Command(c.claudePath, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -83,6 +85,7 @@ func (c *realClient) UninstallPlugin(pluginID string, scope Scope) error {
 		args = append(args, "--scope", string(scope))
 	}
 
+	// #nosec G204 -- args are constructed safely from enum scope
 	cmd := exec.Command(c.claudePath, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
