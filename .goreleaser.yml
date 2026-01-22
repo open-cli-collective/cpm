@@ -1,0 +1,56 @@
+version: 2
+
+project_name: cpm
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: default
+    main: ./cmd/cpm
+    binary: cpm
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/open-cli-collective/cpm/internal/version.Version={{ .Version }}
+      - -X github.com/open-cli-collective/cpm/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/open-cli-collective/cpm/internal/version.Date={{ .Date }}
+    flags:
+      - -trimpath
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: open-cli-collective
+    name: cpm
+  draft: false
+  prerelease: auto
