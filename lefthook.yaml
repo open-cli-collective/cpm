@@ -1,0 +1,29 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofumpt:
+      glob: "*.go"
+      run: gofumpt -l -w -extra {staged_files}
+      stage_fixed: true
+
+    golangci-lint:
+      glob: "*.go"
+      run: golangci-lint run --fix {staged_files}
+      stage_fixed: true
+
+    govet:
+      glob: "*.go"
+      run: go vet ./...
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: |
+        message=$(cat {1})
+        if ! echo "$message" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|build|ci)(\(.+\))?!?: .'; then
+          echo "Commit message must follow conventional commits format:"
+          echo "  type(scope): description"
+          echo ""
+          echo "Types: feat, fix, docs, style, refactor, perf, test, chore, build, ci"
+          exit 1
+        fi
