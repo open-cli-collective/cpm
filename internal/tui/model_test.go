@@ -69,7 +69,7 @@ type mockClient struct {
 	err     error
 }
 
-func (m *mockClient) ListPlugins(includeAvailable bool) (*claude.PluginList, error) {
+func (m *mockClient) ListPlugins(_ bool) (*claude.PluginList, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -79,10 +79,10 @@ func (m *mockClient) ListPlugins(includeAvailable bool) (*claude.PluginList, err
 	return &claude.PluginList{}, nil
 }
 
-func (m *mockClient) InstallPlugin(pluginID string, scope claude.Scope) error {
+func (m *mockClient) InstallPlugin(_ string, _ claude.Scope) error {
 	return m.err
 }
 
-func (m *mockClient) UninstallPlugin(pluginID string, scope claude.Scope) error {
+func (m *mockClient) UninstallPlugin(_ string, _ claude.Scope) error {
 	return m.err
 }

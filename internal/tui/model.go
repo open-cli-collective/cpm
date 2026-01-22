@@ -70,26 +70,17 @@ func parsePluginID(id string) (name, marketplace string) {
 }
 
 // Model is the main application model.
-type Model struct {
+type Model struct { //nolint:govet
 	// Client for Claude CLI operations
 	client claude.Client
-
 	// Plugin data
 	plugins []PluginState
-
+	// Pending changes (plugin ID -> desired scope)
+	pending map[string]claude.Scope
 	// UI state
 	selectedIdx int
 	width       int
 	height      int
-
-	// Pending changes (plugin ID -> desired scope)
-	pending map[string]claude.Scope
-
-	// View mode
-	mode         Mode
-	progressMsgs []string
-	errorMsgs    []string
-
 	// Loading state
 	loading bool
 	err     error
