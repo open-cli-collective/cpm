@@ -74,7 +74,8 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 	if name == "" {
 		name, _ = parsePluginID(p.PluginID)
 	}
-	return PluginState{
+
+	state := PluginState{
 		ID:             p.PluginID,
 		Name:           name,
 		Description:    p.Description,
@@ -82,6 +83,24 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 		Version:        p.Version,
 		InstalledScope: claude.ScopeNone,
 	}
+
+	// Try to resolve the marketplace source path to get additional info
+	sourcePath := claude.ResolveMarketplaceSourcePath(p.MarketplaceName, p.Source)
+	if sourcePath != "" {
+		// Read manifest for author info
+		if manifest, err := claude.ReadPluginManifest(sourcePath); err == nil {
+			state.AuthorName = manifest.AuthorName
+			state.AuthorEmail = manifest.AuthorEmail
+			// Use manifest description if available and CLI description is empty
+			if state.Description == "" && manifest.Description != "" {
+				state.Description = manifest.Description
+			}
+		}
+		// Scan for components
+		state.Components = claude.ScanPluginComponents(sourcePath)
+	}
+
+	return state
 }
 
 // parsePluginID splits "name@marketplace" into (name, marketplace).

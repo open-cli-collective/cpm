@@ -141,3 +141,33 @@ func listMarkdownFiles(dir string) []string {
 	}
 	return result
 }
+
+// ResolveMarketplaceSourcePath resolves the full path to a plugin in a marketplace.
+// It combines ~/.claude/plugins/marketplaces/<marketplace>/ with the source field.
+func ResolveMarketplaceSourcePath(marketplace string, source any) string {
+	// Get source as string - source can be string or object
+	var sourcePath string
+	switch s := source.(type) {
+	case string:
+		sourcePath = s
+	default:
+		// If source is not a string (e.g., an object), we can't resolve it
+		return ""
+	}
+
+	if sourcePath == "" {
+		return ""
+	}
+
+	// Get user home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	// Clean up source path (remove leading ./)
+	sourcePath = strings.TrimPrefix(sourcePath, "./")
+
+	// Construct full path: ~/.claude/plugins/marketplaces/<marketplace>/<source>
+	return filepath.Join(homeDir, ".claude", "plugins", "marketplaces", marketplace, sourcePath)
+}
