@@ -6,6 +6,7 @@
     "ed3d-hook-skill-reinforcement@ed3d-plugins": true,
     "ed3d-plan-and-execute@ed3d-plugins": true,
     "ed3d-research-agents@ed3d-plugins": true,
-    "security-guidance@claude-plugins-official": true
+    "security-guidance@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true
   }
 }
