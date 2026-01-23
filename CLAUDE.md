@@ -1,5 +1,7 @@
 # cpm - Claude Plugin Manager
 
+Last verified: 2026-01-22
+
 A TUI application for managing Claude Code plugins with clear visibility into installation scopes.
 
 ## Quick Start
@@ -16,8 +18,8 @@ mise run build      # Build the application
 ```
 cmd/cpm/           # Application entry point
 internal/
-  claude/          # Claude CLI client (shells out to `claude` command)
-  tui/             # Bubble Tea TUI implementation
+  claude/          # Claude CLI client (see internal/claude/CLAUDE.md)
+  tui/             # Bubble Tea TUI (see internal/tui/CLAUDE.md)
   version/         # Version info (injected at build time)
 ```
 
