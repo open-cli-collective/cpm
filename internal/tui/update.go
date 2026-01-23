@@ -1,15 +1,35 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
 // updateMain handles messages in main mode.
 func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if ok {
-		return m.handleKeyPress(keyMsg)
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Handle quit confirmation
+		if m.showQuitConfirm {
+			switch {
+			case matchesKey(msg, m.keys.Quit):
+				return m, tea.Quit
+			case matchesKey(msg, m.keys.Escape):
+				m.showQuitConfirm = false
+				return m, nil
+			}
+		}
+
+		// Handle filter mode
+		if m.filterActive {
+			return m.updateFilter(msg)
+		}
+		return m.handleKeyPress(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 	return m, nil
 }
@@ -20,6 +40,10 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case matchesKey(msg, keys.Quit):
+		if len(m.pending) > 0 && !m.showQuitConfirm {
+			m.showQuitConfirm = true
+			return m, nil
+		}
 		return m, tea.Quit
 
 	case matchesKey(msg, keys.Up):
@@ -59,6 +83,15 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case matchesKey(msg, keys.Escape):
 		m.clearPending()
+
+	case matchesKey(msg, keys.Filter):
+		m.filterActive = true
+		m.filterText = ""
+		m.filteredIdx = nil
+
+	case matchesKey(msg, keys.Refresh):
+		m.loading = true
+		return m, m.loadPlugins
 	}
 
 	return m, nil
@@ -376,5 +409,104 @@ func (m *Model) updateError(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	return m, nil
+}
+
+// updateFilter handles filter mode input.
+func (m *Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.filterActive = false
+		m.filterText = ""
+		m.filteredIdx = nil
+		m.listOffset = 0
+
+	case tea.KeyEnter:
+		m.filterActive = false
+		// Keep filtered results, select first match if any
+		if len(m.filteredIdx) > 0 {
+			m.selectedIdx = m.filteredIdx[0]
+		}
+		m.filterText = ""
+		m.filteredIdx = nil
+
+	case tea.KeyBackspace:
+		if len(m.filterText) > 0 {
+			m.filterText = m.filterText[:len(m.filterText)-1]
+			m.applyFilter()
+		}
+
+	case tea.KeyRunes:
+		m.filterText += string(msg.Runes)
+		m.applyFilter()
+	}
+
+	return m, nil
+}
+
+// applyFilter updates filteredIdx based on filterText.
+func (m *Model) applyFilter() {
+	if m.filterText == "" {
+		m.filteredIdx = nil
+		return
+	}
+
+	filter := strings.ToLower(m.filterText)
+	m.filteredIdx = nil
+
+	for i, p := range m.plugins {
+		if p.IsGroupHeader {
+			continue
+		}
+		name := strings.ToLower(p.Name)
+		desc := strings.ToLower(p.Description)
+		id := strings.ToLower(p.ID)
+
+		if strings.Contains(name, filter) || strings.Contains(desc, filter) || strings.Contains(id, filter) {
+			m.filteredIdx = append(m.filteredIdx, i)
+		}
+	}
+
+	m.listOffset = 0
+	if len(m.filteredIdx) > 0 {
+		m.selectedIdx = m.filteredIdx[0]
+	}
+}
+
+// handleMouse processes mouse input.
+func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.MouseLeft:
+		// Calculate which item was clicked
+		// Left pane is roughly 1/3 of width
+		leftPaneWidth := m.width / 3
+		if msg.X < leftPaneWidth {
+			// Clicked in left pane
+			// Calculate vertical offset: account for filter bar (1 line if active) + pane border (1 line)
+			verticalOffset := 1 // Default: 1 for top border
+			if m.filterActive {
+				verticalOffset += 1 // Add 1 for filter input bar
+			}
+			row := msg.Y - verticalOffset + m.listOffset
+			plugins := m.getVisiblePlugins()
+			if row >= 0 && row < len(plugins) {
+				actualIdx := m.getActualIndex(row)
+				if actualIdx >= 0 && !m.plugins[actualIdx].IsGroupHeader {
+					m.selectedIdx = actualIdx
+				}
+			}
+		}
+
+	case tea.MouseWheelUp:
+		m.moveUp()
+		m.moveUp()
+		m.moveUp()
+
+	case tea.MouseWheelDown:
+		m.moveDown()
+		m.moveDown()
+		m.moveDown()
+	}
+
 	return m, nil
 }
