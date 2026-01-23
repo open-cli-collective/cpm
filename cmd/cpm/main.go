@@ -45,7 +45,7 @@ func run() error {
 	model := tui.NewModel(client)
 
 	// Run the TUI
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("failed to run TUI: %w", err)
 	}
