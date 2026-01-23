@@ -252,6 +252,18 @@ func (m *Model) renderDetails(styles Styles) string {
 		}
 	}
 
+	// Show external plugin notice if applicable
+	if plugin.IsExternal && plugin.InstalledScope == claude.ScopeNone {
+		lines = append(lines, "")
+		lines = append(lines, styles.DetailLabel.Render("Source:"))
+		lines = append(lines, styles.DetailDescription.Render("External plugin (hosted on GitHub)"))
+		if plugin.ExternalURL != "" {
+			lines = append(lines, styles.Help.Render(plugin.ExternalURL))
+		}
+		lines = append(lines, "")
+		lines = append(lines, styles.Help.Render("Component details available after installation."))
+	}
+
 	return strings.Join(lines, "\n")
 }
 

@@ -35,6 +35,8 @@ type PluginState struct {
 	IsGroupHeader  bool // True for marketplace group headers (non-selectable)
 	InstallPath    string
 	Components     *claude.PluginComponents
+	IsExternal     bool   // True for plugins sourced from external URLs (GitHub, etc.)
+	ExternalURL    string // The external URL if IsExternal is true
 }
 
 // PluginStateFromInstalled creates a PluginState from an installed plugin.
@@ -98,6 +100,16 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 		}
 		// Scan for components
 		state.Components = claude.ScanPluginComponents(sourcePath)
+	} else {
+		// Check if this is an external URL-based plugin
+		if sourceObj, ok := p.Source.(map[string]any); ok {
+			if sourceType, ok := sourceObj["source"].(string); ok && sourceType == "url" {
+				state.IsExternal = true
+				if url, ok := sourceObj["url"].(string); ok {
+					state.ExternalURL = url
+				}
+			}
+		}
 	}
 
 	return state
