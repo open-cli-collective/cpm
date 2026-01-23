@@ -38,63 +38,73 @@ func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keys := m.keys
 
-	switch {
-	case matchesKey(msg, keys.Quit):
-		if len(m.pending) > 0 && !m.showQuitConfirm {
-			m.showQuitConfirm = true
-			return m, nil
-		}
-		return m, tea.Quit
+	// Handle keys that return commands first
+	if matchesKey(msg, keys.Quit) {
+		return m.handleQuitKey()
+	}
+	if matchesKey(msg, keys.Refresh) {
+		return m.handleRefreshKey()
+	}
 
+	// Handle keys that modify state
+	m.handleRegularKeyPress(msg, keys)
+	return m, nil
+}
+
+// handleRegularKeyPress handles all non-command keys that modify state.
+func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
+	switch {
+	case matchesKey(msg, keys.Filter):
+		m.handleFilterKey()
 	case matchesKey(msg, keys.Up):
 		m.moveUp()
-
 	case matchesKey(msg, keys.Down):
 		m.moveDown()
-
 	case matchesKey(msg, keys.PageUp):
 		m.pageUp()
-
 	case matchesKey(msg, keys.PageDown):
 		m.pageDown()
-
 	case matchesKey(msg, keys.Home):
 		m.moveToStart()
-
 	case matchesKey(msg, keys.End):
 		m.moveToEnd()
-
 	case matchesKey(msg, keys.Local):
 		m.selectForInstall(claude.ScopeLocal)
-
 	case matchesKey(msg, keys.Project):
 		m.selectForInstall(claude.ScopeProject)
-
 	case matchesKey(msg, keys.Toggle):
 		m.toggleScope()
-
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
-
 	case matchesKey(msg, keys.Enter):
 		if len(m.pending) > 0 {
 			m.showConfirm = true
 		}
-
 	case matchesKey(msg, keys.Escape):
 		m.clearPending()
-
-	case matchesKey(msg, keys.Filter):
-		m.filterActive = true
-		m.filterText = ""
-		m.filteredIdx = nil
-
-	case matchesKey(msg, keys.Refresh):
-		m.loading = true
-		return m, m.loadPlugins
 	}
+}
 
-	return m, nil
+// handleQuitKey handles the quit key, showing confirmation if there are pending changes.
+func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
+	if len(m.pending) > 0 && !m.showQuitConfirm {
+		m.showQuitConfirm = true
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
+// handleRefreshKey handles the refresh key.
+func (m *Model) handleRefreshKey() (tea.Model, tea.Cmd) {
+	m.loading = true
+	return m, m.loadPlugins
+}
+
+// handleFilterKey activates filter mode.
+func (m *Model) handleFilterKey() {
+	m.filterActive = true
+	m.filterText = ""
+	m.filteredIdx = nil
 }
 
 // moveUp moves selection up, skipping group headers.
@@ -475,38 +485,45 @@ func (m *Model) applyFilter() {
 
 // handleMouse processes mouse input.
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.MouseLeft:
-		// Calculate which item was clicked
-		// Left pane is roughly 1/3 of width
-		leftPaneWidth := m.width / 3
-		if msg.X < leftPaneWidth {
-			// Clicked in left pane
-			// Calculate vertical offset: account for filter bar (1 line if active) + pane border (1 line)
-			verticalOffset := 1 // Default: 1 for top border
-			if m.filterActive {
-				verticalOffset += 1 // Add 1 for filter input bar
-			}
-			row := msg.Y - verticalOffset + m.listOffset
-			plugins := m.getVisiblePlugins()
-			if row >= 0 && row < len(plugins) {
-				actualIdx := m.getActualIndex(row)
-				if actualIdx >= 0 && !m.plugins[actualIdx].IsGroupHeader {
-					m.selectedIdx = actualIdx
-				}
-			}
-		}
+	if msg.Action != tea.MouseActionPress {
+		return m, nil
+	}
 
-	case tea.MouseWheelUp:
+	switch msg.Button {
+	case tea.MouseButtonLeft:
+		m.handleMouseClick(msg)
+	case tea.MouseButtonWheelUp:
 		m.moveUp()
 		m.moveUp()
 		m.moveUp()
-
-	case tea.MouseWheelDown:
+	case tea.MouseButtonWheelDown:
 		m.moveDown()
 		m.moveDown()
 		m.moveDown()
 	}
 
 	return m, nil
+}
+
+// handleMouseClick handles a mouse click on the left pane.
+func (m *Model) handleMouseClick(msg tea.MouseMsg) {
+	// Left pane is roughly 1/3 of width
+	leftPaneWidth := m.width / 3
+	if msg.X >= leftPaneWidth {
+		return
+	}
+
+	// Calculate vertical offset: account for filter bar (1 line if active) + pane border (1 line)
+	verticalOffset := 1 // Default: 1 for top border
+	if m.filterActive {
+		verticalOffset++ // Add 1 for filter input bar
+	}
+	row := msg.Y - verticalOffset + m.listOffset
+	plugins := m.getVisiblePlugins()
+	if row >= 0 && row < len(plugins) {
+		actualIdx := m.getActualIndex(row)
+		if actualIdx >= 0 && !m.plugins[actualIdx].IsGroupHeader {
+			m.selectedIdx = actualIdx
+		}
+	}
 }
