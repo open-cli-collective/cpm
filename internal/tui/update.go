@@ -580,9 +580,11 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 	if m.filterActive {
 		verticalOffset++ // Add 1 for filter input bar
 	}
-	row := msg.Y - verticalOffset + m.listOffset
+	// Calculate row index relative to visible area (not absolute plugin index)
+	// getActualIndex will add listOffset, so don't add it here
+	row := msg.Y - verticalOffset
 	plugins := m.getVisiblePlugins()
-	if row >= 0 && row < len(plugins) {
+	if row >= 0 && row < len(plugins)-m.listOffset {
 		actualIdx := m.getActualIndex(row)
 		if actualIdx >= 0 && !m.plugins[actualIdx].IsGroupHeader {
 			m.selectedIdx = actualIdx

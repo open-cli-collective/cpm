@@ -3,6 +3,7 @@ package tui
 
 import (
 	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/open-cli-collective/cpm/internal/claude"
@@ -48,9 +49,14 @@ func PluginStateFromInstalled(p claude.InstalledPlugin) PluginState {
 
 // PluginStateFromAvailable creates a PluginState from an available plugin.
 func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
+	name := p.Name
+	// Fall back to plugin name from ID if name is empty (e.g., "foo@bar" -> "foo")
+	if name == "" {
+		name, _ = parsePluginID(p.PluginID)
+	}
 	return PluginState{
 		ID:             p.PluginID,
-		Name:           p.Name,
+		Name:           name,
 		Description:    p.Description,
 		Marketplace:    p.MarketplaceName,
 		Version:        p.Version,
@@ -198,9 +204,9 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 	var result []PluginState
 	for _, marketplace := range marketplaces {
 		plugins := byMarketplace[marketplace]
-		// Sort plugins within marketplace by name for deterministic ordering
+		// Sort plugins within marketplace by name (case-insensitive) for deterministic ordering
 		sort.Slice(plugins, func(i, j int) bool {
-			return plugins[i].Name < plugins[j].Name
+			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
 		})
 		// Add group header
 		result = append(result, PluginState{
