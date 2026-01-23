@@ -43,6 +43,21 @@ Or use Make: `make fmt`, `make lint`, `make test`, `make build`, `make ci`
 - **Lip Gloss**: Terminal styling and layout
 - **Claude CLI**: All plugin operations shell out to `claude plugin` commands
 
+See [docs/architecture.md](docs/architecture.md) for detailed diagrams and type definitions.
+
+### Maintaining Architecture Documentation
+
+When making structural changes (new types, packages, or significant refactors):
+
+1. Update `docs/architecture.md` with any new/changed types or relationships
+2. Update the "Last updated" date at the top
+3. Use LSP `documentSymbol` operation to extract current type definitions:
+   ```
+   LSP documentSymbol on internal/claude/types.go, client.go, manifest.go
+   LSP documentSymbol on internal/tui/model.go, styles.go, keys.go
+   ```
+4. Ensure Mermaid diagrams reflect current structure
+
 ## Commit Conventions
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/):
