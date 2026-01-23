@@ -40,9 +40,15 @@ func run() error {
 		return fmt.Errorf("claude CLI not found in PATH. Please install Claude Code first")
 	}
 
+	// Get current working directory for filtering project-scoped plugins
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
 	// Create client and model
 	client := claude.NewClient()
-	model := tui.NewModel(client)
+	model := tui.NewModel(client, workingDir)
 
 	// Run the TUI
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())

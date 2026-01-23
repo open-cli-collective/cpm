@@ -79,6 +79,9 @@ type Model struct { //nolint:govet
 	// Client for Claude CLI operations
 	client claude.Client
 
+	// Working directory for filtering project-scoped plugins
+	workingDir string
+
 	// Styles and keys
 	styles Styles
 	keys   KeyBindings
@@ -117,14 +120,15 @@ type Model struct { //nolint:govet
 	showQuitConfirm bool
 }
 
-// NewModel creates a new Model with the given client.
-func NewModel(client claude.Client) *Model {
+// NewModel creates a new Model with the given client and working directory.
+func NewModel(client claude.Client, workingDir string) *Model {
 	return &Model{
-		client:  client,
-		styles:  DefaultStyles(),
-		keys:    DefaultKeyBindings(),
-		pending: make(map[string]claude.Scope),
-		loading: true,
+		client:     client,
+		workingDir: workingDir,
+		styles:     DefaultStyles(),
+		keys:       DefaultKeyBindings(),
+		pending:    make(map[string]claude.Scope),
+		loading:    true,
 	}
 }
 
@@ -164,15 +168,29 @@ func (m *Model) loadPlugins() tea.Msg {
 		return pluginsErrorMsg{err: err}
 	}
 
-	plugins := mergePlugins(list)
+	plugins := mergePlugins(list, m.workingDir)
 	return pluginsLoadedMsg{plugins: plugins}
 }
 
+// isRelevantInstall checks if an installed plugin is relevant to the current working directory.
+// User-scoped plugins are always relevant; project/local-scoped plugins must match the working directory.
+func isRelevantInstall(p claude.InstalledPlugin, workingDir string) bool {
+	if p.Scope == claude.ScopeUser {
+		return true // User-scoped plugins apply everywhere
+	}
+	// Project and local scoped plugins must match the working directory
+	return p.ProjectPath == workingDir
+}
+
 // mergePlugins combines installed and available plugins, grouped by marketplace.
-func mergePlugins(list *claude.PluginList) []PluginState {
-	// Build map of installed plugins by ID
+// Only installed plugins relevant to workingDir are included.
+func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
+	// Build map of installed plugins by ID, filtered to relevant installs
 	installedByID := make(map[string]claude.InstalledPlugin)
 	for _, p := range list.Installed {
+		if !isRelevantInstall(p, workingDir) {
+			continue
+		}
 		installedByID[p.ID] = p
 	}
 
@@ -186,7 +204,7 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 	for _, p := range list.Available {
 		state := PluginStateFromAvailable(p)
 
-		// Check if installed
+		// Check if installed (in the filtered set)
 		if installed, ok := installedByID[p.PluginID]; ok {
 			state.InstalledScope = installed.Scope
 			state.Enabled = installed.Enabled
@@ -197,8 +215,11 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
-	// Add installed plugins that weren't in the available list
+	// Add installed plugins that weren't in the available list (already filtered)
 	for _, p := range list.Installed {
+		if !isRelevantInstall(p, workingDir) {
+			continue
+		}
 		if seenInstalled[p.ID] {
 			continue // Already added via available list
 		}

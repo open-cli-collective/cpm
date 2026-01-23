@@ -11,7 +11,7 @@ import (
 
 func TestNewModel(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 
 	if m.client == nil {
 		t.Error("client is nil")
@@ -100,7 +100,7 @@ func (m *mockClient) UninstallPlugin(pluginID string, scope claude.Scope) error 
 
 func TestSelectForInstallLocal(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
@@ -115,7 +115,7 @@ func TestSelectForInstallLocal(t *testing.T) {
 
 func TestSelectForInstallProject(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
@@ -130,7 +130,7 @@ func TestSelectForInstallProject(t *testing.T) {
 
 func TestSelectForInstallClearsIfSameScope(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
 	}
@@ -147,7 +147,7 @@ func TestSelectForInstallClearsIfSameScope(t *testing.T) {
 
 func TestSelectForUninstall(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
 	}
@@ -162,7 +162,7 @@ func TestSelectForUninstall(t *testing.T) {
 
 func TestSelectForUninstallToggle(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
 	}
@@ -183,7 +183,7 @@ func TestSelectForUninstallToggle(t *testing.T) {
 
 func TestClearPending(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
@@ -199,7 +199,7 @@ func TestClearPending(t *testing.T) {
 
 func TestToggleScopeCycle(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
@@ -226,7 +226,7 @@ func TestToggleScopeCycle(t *testing.T) {
 
 func TestToggleScopeInstalledPlugin(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
 	}
@@ -247,7 +247,7 @@ func TestToggleScopeInstalledPlugin(t *testing.T) {
 
 func TestSkipsGroupHeaders(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{Name: "marketplace", IsGroupHeader: true},
 	}
@@ -266,7 +266,7 @@ func TestSkipsGroupHeaders(t *testing.T) {
 // TestUpdateConfirmationEnterStartsExecution tests that Enter in confirmation starts execution.
 func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
@@ -294,7 +294,7 @@ func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
 // TestUpdateConfirmationEscapeCancel tests that Escape cancels confirmation.
 func TestUpdateConfirmationEscapeCancel(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.pending["test@marketplace"] = claude.ScopeLocal
 	m.showConfirm = true
 
@@ -319,7 +319,7 @@ func TestUpdateConfirmationEscapeCancel(t *testing.T) {
 // TestStartExecutionBuildsOperations tests that startExecution builds operations correctly.
 func TestStartExecutionBuildsOperations(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@market", Name: "plugin1", InstalledScope: claude.ScopeLocal},
 		{ID: "plugin2@market", Name: "plugin2", InstalledScope: claude.ScopeNone},
@@ -375,7 +375,7 @@ func TestExecuteOperationInstall(t *testing.T) {
 		},
 	}
 
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	op := Operation{
 		PluginID:  "test@marketplace",
 		Scope:     claude.ScopeLocal,
@@ -419,7 +419,7 @@ func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
 		},
 	}
 
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	op := Operation{
 		PluginID:      "test@marketplace",
 		Scope:         claude.ScopeNone, // marked for uninstall
@@ -454,7 +454,7 @@ func TestUpdateProgressChainedOperations(t *testing.T) {
 		},
 	}
 
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
 		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
@@ -482,7 +482,7 @@ func TestUpdateProgressChainedOperations(t *testing.T) {
 // TestUpdateProgressCompletesAndShowsSummary tests that all operations complete correctly.
 func TestUpdateProgressCompletesAndShowsSummary(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
 		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
@@ -509,7 +509,7 @@ func TestUpdateProgressCompletesAndShowsSummary(t *testing.T) {
 // TestUpdateProgressRecordsErrors tests that errors are recorded correctly.
 func TestUpdateProgressRecordsErrors(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
 		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
@@ -531,7 +531,7 @@ func TestUpdateProgressRecordsErrors(t *testing.T) {
 // TestUpdateErrorReturnsToMain tests that error summary returns to main view on Enter/Esc.
 func TestUpdateErrorReturnsToMain(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.mode = ModeSummary
 	m.operations = []Operation{{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true}}
 	m.operationErrors = []string{""}
@@ -555,7 +555,7 @@ func TestUpdateErrorReturnsToMain(t *testing.T) {
 // TestUpdateErrorHandlesPluginsLoaded tests that summary updates when plugins reload.
 func TestUpdateErrorHandlesPluginsLoaded(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.mode = ModeSummary
 	m.selectedIdx = 0
 
@@ -579,7 +579,7 @@ func TestUpdateErrorHandlesPluginsLoaded(t *testing.T) {
 // TestRenderConfirmationOutput tests that renderConfirmation produces expected content.
 func TestRenderConfirmationOutput(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.pending["p1@market"] = claude.ScopeLocal
@@ -607,7 +607,7 @@ func TestRenderConfirmationOutput(t *testing.T) {
 // TestRenderProgressOutput tests that renderProgress shows operation status.
 func TestRenderProgressOutput(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.mode = ModeProgress
@@ -637,7 +637,7 @@ func TestRenderProgressOutput(t *testing.T) {
 // TestRenderErrorSummaryAllSuccess tests summary when all operations succeed.
 func TestRenderErrorSummaryAllSuccess(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.mode = ModeSummary
@@ -663,7 +663,7 @@ func TestRenderErrorSummaryAllSuccess(t *testing.T) {
 // TestRenderErrorSummaryWithErrors tests summary when some operations fail.
 func TestRenderErrorSummaryWithErrors(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.mode = ModeSummary
@@ -694,7 +694,7 @@ func TestRenderErrorSummaryWithErrors(t *testing.T) {
 // TestUpdateFilterEscClears tests that Esc clears filter and exits filter mode.
 func TestUpdateFilterEscClears(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
 	}
@@ -720,7 +720,7 @@ func TestUpdateFilterEscClears(t *testing.T) {
 // TestUpdateFilterEnterSelectsFirstMatch tests that Enter selects first filtered match and exits.
 func TestUpdateFilterEnterSelectsFirstMatch(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@marketplace", Name: "plugin1", IsGroupHeader: false},
 		{ID: "plugin2@marketplace", Name: "plugin2", IsGroupHeader: false},
@@ -745,7 +745,7 @@ func TestUpdateFilterEnterSelectsFirstMatch(t *testing.T) {
 // TestUpdateFilterBackspaceRemovesCharacters tests that backspace removes filter text.
 func TestUpdateFilterBackspaceRemovesCharacters(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
 	}
@@ -765,7 +765,7 @@ func TestUpdateFilterBackspaceRemovesCharacters(t *testing.T) {
 // TestUpdateFilterRunesAppends tests that runes are appended to filter text.
 func TestUpdateFilterRunesAppends(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
 	}
@@ -784,7 +784,7 @@ func TestUpdateFilterRunesAppends(t *testing.T) {
 // TestApplyFilterCaseInsensitive tests case-insensitive matching on name/description/ID.
 func TestApplyFilterCaseInsensitive(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "TestPlugin@marketplace", Name: "TestPlugin", Description: "A test plugin", IsGroupHeader: false},
 		{ID: "other@marketplace", Name: "other", Description: "Another one", IsGroupHeader: false},
@@ -805,7 +805,7 @@ func TestApplyFilterCaseInsensitive(t *testing.T) {
 // TestApplyFilterSkipsGroupHeaders tests that group headers are skipped.
 func TestApplyFilterSkipsGroupHeaders(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{Name: "marketplace", IsGroupHeader: true},
 		{ID: "test@marketplace", Name: "test", Description: "A test", IsGroupHeader: false},
@@ -835,7 +835,7 @@ func TestApplyFilterSkipsGroupHeaders(t *testing.T) {
 // TestApplyFilterMatchesDescription tests that filters match plugin description.
 func TestApplyFilterMatchesDescription(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin@m", Name: "plugin", Description: "Very useful tool", IsGroupHeader: false},
 	}
@@ -852,7 +852,7 @@ func TestApplyFilterMatchesDescription(t *testing.T) {
 // TestApplyFilterMatchesID tests that filters match plugin ID.
 func TestApplyFilterMatchesID(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "unique-id@marketplace", Name: "plugin", IsGroupHeader: false},
 	}
@@ -869,7 +869,7 @@ func TestApplyFilterMatchesID(t *testing.T) {
 // TestGetVisiblePluginsFiltered tests that filtered plugins are returned when active.
 func TestGetVisiblePluginsFiltered(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
 		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
@@ -891,7 +891,7 @@ func TestGetVisiblePluginsFiltered(t *testing.T) {
 // TestGetVisiblePluginsUnfiltered tests that all plugins returned when filter inactive.
 func TestGetVisiblePluginsUnfiltered(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
 		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
@@ -908,7 +908,7 @@ func TestGetVisiblePluginsUnfiltered(t *testing.T) {
 // TestGetActualIndexWithFilter tests index mapping with filter active.
 func TestGetActualIndexWithFilter(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
 		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
@@ -933,7 +933,7 @@ func TestGetActualIndexWithFilter(t *testing.T) {
 // TestGetActualIndexWithoutFilter tests index mapping with filter inactive.
 func TestGetActualIndexWithoutFilter(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
 		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
 		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
@@ -950,7 +950,7 @@ func TestGetActualIndexWithoutFilter(t *testing.T) {
 // TestRenderFilterInput tests filter input rendering when active.
 func TestRenderFilterInput(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.filterActive = true
 	m.filterText = "test"
 
@@ -967,7 +967,7 @@ func TestRenderFilterInput(t *testing.T) {
 // TestRenderFilterInputInactive tests no output when filter inactive.
 func TestRenderFilterInputInactive(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.filterActive = false
 
 	output := m.renderFilterInput(m.styles)
@@ -982,7 +982,7 @@ func TestRenderFilterInputInactive(t *testing.T) {
 // TestHandleRefreshKey tests refresh key sets loading and returns loadPlugins command.
 func TestHandleRefreshKey(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.loading = false
 
 	result, cmd := m.handleRefreshKey()
@@ -1001,7 +1001,7 @@ func TestHandleRefreshKey(t *testing.T) {
 // TestHandleQuitKeyShowsConfirmation tests quit confirmation when pending changes.
 func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.pending["test@m"] = claude.ScopeLocal
 	m.showQuitConfirm = false
 
@@ -1019,7 +1019,7 @@ func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
 // TestHandleQuitKeyQuitsWhenNoPending tests quit quits when no pending changes.
 func TestHandleQuitKeyQuitsWhenNoPending(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.pending = make(map[string]claude.Scope)
 
 	_, cmd := m.handleQuitKey()
@@ -1035,7 +1035,7 @@ func TestHandleQuitKeyQuitsWhenNoPending(t *testing.T) {
 // TestRenderQuitConfirmation tests quit confirmation modal content.
 func TestRenderQuitConfirmation(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.pending["plugin1@m"] = claude.ScopeLocal
@@ -1059,7 +1059,7 @@ func TestRenderQuitConfirmation(t *testing.T) {
 // TestHandleMouseLeftClick tests left click selects item in left pane.
 func TestHandleMouseLeftClick(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.plugins = []PluginState{
@@ -1093,7 +1093,7 @@ func TestHandleMouseLeftClick(t *testing.T) {
 // TestHandleMouseWheelUp tests mouse wheel up scrolls up.
 func TestHandleMouseWheelUp(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.plugins = []PluginState{
@@ -1121,7 +1121,7 @@ func TestHandleMouseWheelUp(t *testing.T) {
 // TestHandleMouseWheelDown tests mouse wheel down scrolls down.
 func TestHandleMouseWheelDown(t *testing.T) {
 	client := &mockClient{}
-	m := NewModel(client)
+	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
 	m.plugins = []PluginState{
