@@ -6,16 +6,15 @@ import (
 
 // Colors for the UI.
 var (
-	colorPrimary    = lipgloss.Color("#7D56F4")
-	colorSecondary  = lipgloss.Color("#5A4FCF")
-	colorText       = lipgloss.Color("#FAFAFA")
-	colorMuted      = lipgloss.Color("#626262")
-	colorLocal      = lipgloss.Color("#FF9F1C")
-	colorProject    = lipgloss.Color("#2EC4B6")
-	colorUser       = lipgloss.Color("#E71D36")
-	colorPending    = lipgloss.Color("#FFBF69")
-	colorBorder     = lipgloss.Color("#383838")
-	colorBackground = lipgloss.Color("#1A1A1A")
+	colorPrimary   = lipgloss.Color("#7D56F4")
+	colorSecondary = lipgloss.Color("#5A4FCF")
+	colorText      = lipgloss.Color("#FAFAFA")
+	colorMuted     = lipgloss.Color("#626262")
+	colorLocal     = lipgloss.Color("#FF9F1C")
+	colorProject   = lipgloss.Color("#2EC4B6")
+	colorUser      = lipgloss.Color("#E71D36")
+	colorPending   = lipgloss.Color("#FFBF69")
+	colorBorder    = lipgloss.Color("#383838")
 )
 
 // Styles holds all the styles used in the TUI.
@@ -25,11 +24,11 @@ type Styles struct {
 	RightPane lipgloss.Style
 
 	// List item styles
-	Header       lipgloss.Style
-	Selected     lipgloss.Style
-	Normal       lipgloss.Style
-	GroupHeader  lipgloss.Style
-	Description  lipgloss.Style
+	Header      lipgloss.Style
+	Selected    lipgloss.Style
+	Normal      lipgloss.Style
+	GroupHeader lipgloss.Style
+	Description lipgloss.Style
 
 	// Scope indicator styles
 	ScopeLocal   lipgloss.Style

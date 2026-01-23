@@ -90,9 +90,7 @@ type Model struct { //nolint:govet
 	pending map[string]claude.Scope
 
 	// View mode
-	mode         Mode
-	progressMsgs []string
-	errorMsgs    []string
+	mode Mode
 
 	// Loading state
 	loading bool
@@ -215,8 +213,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle mode-specific updates
-	switch m.mode {
-	case ModeMain:
+	if m.mode == ModeMain {
 		return m.updateMain(msg)
 	}
 
@@ -233,8 +230,7 @@ func (m *Model) View() string {
 		return "Error: " + m.err.Error() + "\n\nPress q to quit."
 	}
 
-	switch m.mode {
-	case ModeMain:
+	if m.mode == ModeMain {
 		return m.renderMainView()
 	}
 

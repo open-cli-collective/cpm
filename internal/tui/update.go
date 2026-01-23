@@ -6,9 +6,9 @@ import (
 
 // updateMain handles messages in main mode.
 func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		return m.handleKeyPress(msg)
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if ok {
+		return m.handleKeyPress(keyMsg)
 	}
 	return m, nil
 }

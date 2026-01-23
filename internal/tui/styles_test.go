@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestStylesInitialized(t *testing.T) {
+func TestStylesInitialized(_ *testing.T) {
 	// Verify styles are defined and usable
 	s := DefaultStyles()
 
