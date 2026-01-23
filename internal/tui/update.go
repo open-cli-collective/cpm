@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
 // updateMain handles messages in main mode.
@@ -38,6 +39,21 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case matchesKey(msg, keys.End):
 		m.moveToEnd()
+
+	case matchesKey(msg, keys.Local):
+		m.selectForInstall(claude.ScopeLocal)
+
+	case matchesKey(msg, keys.Project):
+		m.selectForInstall(claude.ScopeProject)
+
+	case matchesKey(msg, keys.Toggle):
+		m.toggleScope()
+
+	case matchesKey(msg, keys.Uninstall):
+		m.selectForUninstall()
+
+	case matchesKey(msg, keys.Escape):
+		m.clearPending()
 	}
 
 	return m, nil
@@ -136,4 +152,106 @@ func (m *Model) ensureVisible() {
 	if m.listOffset > maxOffset {
 		m.listOffset = maxOffset
 	}
+}
+
+// selectForInstall marks the selected plugin for installation at the given scope.
+func (m *Model) selectForInstall(scope claude.Scope) {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	// If already installed at this scope, remove the pending change
+	if plugin.InstalledScope == scope {
+		delete(m.pending, plugin.ID)
+		return
+	}
+
+	m.pending[plugin.ID] = scope
+}
+
+// toggleScope cycles through: none -> local -> project -> uninstall -> none
+func (m *Model) toggleScope() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	current := m.getCurrentDesiredScope(plugin)
+
+	var next claude.Scope
+	switch current {
+	case claude.ScopeNone:
+		// Not installed and no pending -> install local
+		next = claude.ScopeLocal
+	case claude.ScopeLocal:
+		// Local (or pending local) -> project
+		next = claude.ScopeProject
+	case claude.ScopeProject:
+		// Project (or pending project) -> uninstall (if installed) or none
+		if plugin.InstalledScope != claude.ScopeNone {
+			// Mark for uninstall
+			m.pending[plugin.ID] = claude.ScopeNone
+			return
+		}
+		// Not installed, just clear pending
+		delete(m.pending, plugin.ID)
+		return
+	}
+
+	// If cycling back to original state, clear pending
+	if next == plugin.InstalledScope {
+		delete(m.pending, plugin.ID)
+	} else {
+		m.pending[plugin.ID] = next
+	}
+}
+
+// selectForUninstall marks the selected plugin for uninstallation.
+func (m *Model) selectForUninstall() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	// Can only uninstall if currently installed
+	if plugin.InstalledScope == claude.ScopeNone {
+		// If pending install, clear it
+		delete(m.pending, plugin.ID)
+		return
+	}
+
+	// Toggle uninstall
+	if pending, ok := m.pending[plugin.ID]; ok && pending == claude.ScopeNone {
+		// Already marked for uninstall, clear it
+		delete(m.pending, plugin.ID)
+	} else {
+		// Mark for uninstall
+		m.pending[plugin.ID] = claude.ScopeNone
+	}
+}
+
+// clearPending clears the pending change for the selected plugin.
+func (m *Model) clearPending() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil {
+		return
+	}
+	delete(m.pending, plugin.ID)
+}
+
+// getSelectedPlugin returns the currently selected plugin, or nil if none.
+func (m *Model) getSelectedPlugin() *PluginState {
+	if m.selectedIdx < 0 || m.selectedIdx >= len(m.plugins) {
+		return nil
+	}
+	return &m.plugins[m.selectedIdx]
+}
+
+// getCurrentDesiredScope returns the effective scope (pending or installed).
+func (m *Model) getCurrentDesiredScope(plugin *PluginState) claude.Scope {
+	if pending, ok := m.pending[plugin.ID]; ok {
+		return pending
+	}
+	return plugin.InstalledScope
 }
