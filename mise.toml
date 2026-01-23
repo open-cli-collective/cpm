@@ -29,7 +29,8 @@ run = """
 go build -ldflags="-s -w \
   -X github.com/open-cli-collective/cpm/internal/version.Version=dev \
   -X github.com/open-cli-collective/cpm/internal/version.Commit=$(git rev-parse --short HEAD) \
-  -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -X github.com/open-cli-collective/cpm/internal/version.Branch=$(git rev-parse --abbrev-ref HEAD)" \
   -o cpm ./cmd/cpm
 """
 

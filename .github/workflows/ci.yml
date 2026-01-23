@@ -16,19 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up mise
+        uses: jdx/mise-action@v2
         with:
-          go-version: "1.24"
-          cache: true
-
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.5
+          install: true
 
       - name: Run golangci-lint
-        run: golangci-lint run ./...
+        run: mise run lint
 
   test:
     name: Test
@@ -36,11 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up mise
+        uses: jdx/mise-action@v2
         with:
-          go-version: "1.24"
-          cache: true
+          install: true
 
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
@@ -57,14 +50,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up mise
+        uses: jdx/mise-action@v2
         with:
-          go-version: "1.24"
-          cache: true
+          install: true
 
       - name: Build
-        run: go build -o cpm ./cmd/cpm
+        run: mise run build
 
       - name: Verify binary
         run: ./cpm --version

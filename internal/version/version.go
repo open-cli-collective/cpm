@@ -11,9 +11,11 @@ var (
 	Commit = "unknown"
 	// Date is the build date in RFC3339 format.
 	Date = "unknown"
+	// Branch is the git branch name.
+	Branch = "unknown"
 )
 
 // String returns a formatted version string.
 func String() string {
-	return fmt.Sprintf("cpm %s (commit: %s, built: %s)", Version, Commit, Date)
+	return fmt.Sprintf("cpm %s (branch: %s, commit: %s, built: %s)", Version, Branch, Commit, Date)
 }

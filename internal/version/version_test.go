@@ -13,6 +13,9 @@ func TestString(t *testing.T) {
 	if Date == "" {
 		Date = "unknown"
 	}
+	if Branch == "" {
+		Branch = "unknown"
+	}
 
 	s := String()
 	if s == "" {
@@ -22,6 +25,11 @@ func TestString(t *testing.T) {
 	// Should contain version
 	if !contains(s, Version) {
 		t.Errorf("String() = %q, should contain version %q", s, Version)
+	}
+
+	// Should contain branch
+	if !contains(s, Branch) {
+		t.Errorf("String() = %q, should contain branch %q", s, Branch)
 	}
 }
 
