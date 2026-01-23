@@ -101,6 +101,14 @@ type Model struct { //nolint:govet
 	currentOpIdx    int
 	operationErrors []string
 	showConfirm     bool
+
+	// Filter state
+	filterText   string
+	filterActive bool
+	filteredIdx  []int // indices into plugins that match filter
+
+	// Quit confirmation
+	showQuitConfirm bool
 }
 
 // NewModel creates a new Model with the given client.
@@ -258,6 +266,10 @@ func (m *Model) View() string {
 
 	if m.err != nil {
 		return "Error: " + m.err.Error() + "\n\nPress q to quit."
+	}
+
+	if m.showQuitConfirm {
+		return m.renderQuitConfirmation(m.styles)
 	}
 
 	if m.showConfirm {
