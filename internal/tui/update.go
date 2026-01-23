@@ -7,6 +7,9 @@ import (
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
+// wheelScrollSpeed defines how many items to scroll per wheel event
+const wheelScrollSpeed = 3
+
 // updateMain handles messages in main mode.
 func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -426,32 +429,90 @@ func (m *Model) updateError(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		m.filterActive = false
-		m.filterText = ""
-		m.filteredIdx = nil
-		m.listOffset = 0
-
+		m.exitFilter()
 	case tea.KeyEnter:
-		m.filterActive = false
-		// Keep filtered results, select first match if any
-		if len(m.filteredIdx) > 0 {
-			m.selectedIdx = m.filteredIdx[0]
-		}
-		m.filterText = ""
-		m.filteredIdx = nil
-
+		m.selectFilterMatch()
 	case tea.KeyBackspace:
-		if len(m.filterText) > 0 {
-			m.filterText = m.filterText[:len(m.filterText)-1]
-			m.applyFilter()
-		}
-
+		m.backspaceFilter()
 	case tea.KeyRunes:
 		m.filterText += string(msg.Runes)
 		m.applyFilter()
+	case tea.KeyUp:
+		m.navigateFilterUp()
+	case tea.KeyDown:
+		m.navigateFilterDown()
 	}
 
 	return m, nil
+}
+
+// exitFilter exits filter mode and clears filter state.
+func (m *Model) exitFilter() {
+	m.filterActive = false
+	m.filterText = ""
+	m.filteredIdx = nil
+	m.listOffset = 0
+}
+
+// selectFilterMatch selects the first match and exits filter mode.
+func (m *Model) selectFilterMatch() {
+	m.filterActive = false
+	// Keep filtered results, select first match if any
+	if len(m.filteredIdx) > 0 {
+		m.selectedIdx = m.filteredIdx[0]
+	}
+	m.filterText = ""
+	m.filteredIdx = nil
+}
+
+// backspaceFilter removes the last character from filter text.
+func (m *Model) backspaceFilter() {
+	if len(m.filterText) > 0 {
+		m.filterText = m.filterText[:len(m.filterText)-1]
+		m.applyFilter()
+	}
+}
+
+// navigateFilterUp navigates up within filtered results.
+func (m *Model) navigateFilterUp() {
+	if len(m.filteredIdx) == 0 {
+		return
+	}
+
+	// Find current selection in filtered list
+	currentPos := -1
+	for i, idx := range m.filteredIdx {
+		if idx == m.selectedIdx {
+			currentPos = i
+			break
+		}
+	}
+
+	if currentPos > 0 {
+		m.selectedIdx = m.filteredIdx[currentPos-1]
+		m.ensureVisible()
+	}
+}
+
+// navigateFilterDown navigates down within filtered results.
+func (m *Model) navigateFilterDown() {
+	if len(m.filteredIdx) == 0 {
+		return
+	}
+
+	// Find current selection in filtered list
+	currentPos := -1
+	for i, idx := range m.filteredIdx {
+		if idx == m.selectedIdx {
+			currentPos = i
+			break
+		}
+	}
+
+	if currentPos >= 0 && currentPos < len(m.filteredIdx)-1 {
+		m.selectedIdx = m.filteredIdx[currentPos+1]
+		m.ensureVisible()
+	}
 }
 
 // applyFilter updates filteredIdx based on filterText.
@@ -493,13 +554,13 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseButtonLeft:
 		m.handleMouseClick(msg)
 	case tea.MouseButtonWheelUp:
-		m.moveUp()
-		m.moveUp()
-		m.moveUp()
+		for i := 0; i < wheelScrollSpeed; i++ {
+			m.moveUp()
+		}
 	case tea.MouseButtonWheelDown:
-		m.moveDown()
-		m.moveDown()
-		m.moveDown()
+		for i := 0; i < wheelScrollSpeed; i++ {
+			m.moveDown()
+		}
 	}
 
 	return m, nil
@@ -507,8 +568,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // handleMouseClick handles a mouse click on the left pane.
 func (m *Model) handleMouseClick(msg tea.MouseMsg) {
-	// Left pane is roughly 1/3 of width
-	leftPaneWidth := m.width / 3
+	// Left pane width is roughly 1/3 of total width, minus 4 for padding/borders, plus 2 for border
+	// = width/3 - 2 (net adjustment for borders and padding)
+	leftPaneWidth := m.width/3 - 2
 	if msg.X >= leftPaneWidth {
 		return
 	}

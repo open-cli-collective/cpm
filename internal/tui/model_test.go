@@ -688,3 +688,460 @@ func TestRenderErrorSummaryWithErrors(t *testing.T) {
 		t.Error("output should list failed plugin")
 	}
 }
+
+// --- Filter Mode Tests ---
+
+// TestUpdateFilterEscClears tests that Esc clears filter and exits filter mode.
+func TestUpdateFilterEscClears(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "test"
+	m.filteredIdx = []int{0}
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	result, _ := m.updateFilter(msg)
+	m = result.(*Model)
+
+	if m.filterActive {
+		t.Error("filterActive should be false after Esc")
+	}
+	if m.filterText != "" {
+		t.Errorf("filterText = %q, want empty", m.filterText)
+	}
+	if len(m.filteredIdx) != 0 {
+		t.Error("filteredIdx should be cleared after Esc")
+	}
+}
+
+// TestUpdateFilterEnterSelectsFirstMatch tests that Enter selects first filtered match and exits.
+func TestUpdateFilterEnterSelectsFirstMatch(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin1@marketplace", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@marketplace", Name: "plugin2", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "plugin"
+	m.filteredIdx = []int{0, 1}
+	m.selectedIdx = -1
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ := m.updateFilter(msg)
+	m = result.(*Model)
+
+	if m.filterActive {
+		t.Error("filterActive should be false after Enter")
+	}
+	if m.selectedIdx != 0 {
+		t.Errorf("selectedIdx = %d, want 0 (first match)", m.selectedIdx)
+	}
+}
+
+// TestUpdateFilterBackspaceRemovesCharacters tests that backspace removes filter text.
+func TestUpdateFilterBackspaceRemovesCharacters(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "test"
+	m.filteredIdx = []int{0}
+
+	msg := tea.KeyMsg{Type: tea.KeyBackspace}
+	result, _ := m.updateFilter(msg)
+	m = result.(*Model)
+
+	if m.filterText != "tes" {
+		t.Errorf("filterText = %q, want 'tes'", m.filterText)
+	}
+}
+
+// TestUpdateFilterRunesAppends tests that runes are appended to filter text.
+func TestUpdateFilterRunesAppends(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "te"
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("st")}
+	result, _ := m.updateFilter(msg)
+	m = result.(*Model)
+
+	if m.filterText != "test" {
+		t.Errorf("filterText = %q, want 'test'", m.filterText)
+	}
+}
+
+// TestApplyFilterCaseInsensitive tests case-insensitive matching on name/description/ID.
+func TestApplyFilterCaseInsensitive(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "TestPlugin@marketplace", Name: "TestPlugin", Description: "A test plugin", IsGroupHeader: false},
+		{ID: "other@marketplace", Name: "other", Description: "Another one", IsGroupHeader: false},
+	}
+	m.filterText = "test"
+	m.filterActive = true
+
+	m.applyFilter()
+
+	if len(m.filteredIdx) != 1 {
+		t.Errorf("len(filteredIdx) = %d, want 1", len(m.filteredIdx))
+	}
+	if m.filteredIdx[0] != 0 {
+		t.Errorf("filteredIdx[0] = %d, want 0", m.filteredIdx[0])
+	}
+}
+
+// TestApplyFilterSkipsGroupHeaders tests that group headers are skipped.
+func TestApplyFilterSkipsGroupHeaders(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{Name: "marketplace", IsGroupHeader: true},
+		{ID: "test@marketplace", Name: "test", Description: "A test", IsGroupHeader: false},
+	}
+	m.filterText = "xyz" // Search for something that doesn't match
+	m.filterActive = true
+
+	m.applyFilter()
+
+	if len(m.filteredIdx) != 0 {
+		t.Errorf("len(filteredIdx) = %d, want 0 (no matches)", len(m.filteredIdx))
+	}
+
+	// Now search for something that matches only the plugin, not the header
+	m.filterText = "test"
+	m.applyFilter()
+
+	if len(m.filteredIdx) != 1 {
+		t.Errorf("len(filteredIdx) = %d, want 1 (plugin matches)", len(m.filteredIdx))
+	}
+	// Verify it's not the header (index 0)
+	if m.filteredIdx[0] == 0 {
+		t.Error("should not match group header")
+	}
+}
+
+// TestApplyFilterMatchesDescription tests that filters match plugin description.
+func TestApplyFilterMatchesDescription(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin@m", Name: "plugin", Description: "Very useful tool", IsGroupHeader: false},
+	}
+	m.filterText = "useful"
+	m.filterActive = true
+
+	m.applyFilter()
+
+	if len(m.filteredIdx) != 1 {
+		t.Errorf("len(filteredIdx) = %d, want 1 (should match description)", len(m.filteredIdx))
+	}
+}
+
+// TestApplyFilterMatchesID tests that filters match plugin ID.
+func TestApplyFilterMatchesID(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "unique-id@marketplace", Name: "plugin", IsGroupHeader: false},
+	}
+	m.filterText = "unique"
+	m.filterActive = true
+
+	m.applyFilter()
+
+	if len(m.filteredIdx) != 1 {
+		t.Errorf("len(filteredIdx) = %d, want 1 (should match ID)", len(m.filteredIdx))
+	}
+}
+
+// TestGetVisiblePluginsFiltered tests that filtered plugins are returned when active.
+func TestGetVisiblePluginsFiltered(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "plugin1"
+	m.filteredIdx = []int{0}
+
+	visible := m.getVisiblePlugins()
+
+	if len(visible) != 1 {
+		t.Errorf("len(visible) = %d, want 1", len(visible))
+	}
+	if visible[0].ID != "plugin1@m" {
+		t.Errorf("visible[0].ID = %q, want 'plugin1@m'", visible[0].ID)
+	}
+}
+
+// TestGetVisiblePluginsUnfiltered tests that all plugins returned when filter inactive.
+func TestGetVisiblePluginsUnfiltered(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
+	}
+	m.filterActive = false
+
+	visible := m.getVisiblePlugins()
+
+	if len(visible) != 2 {
+		t.Errorf("len(visible) = %d, want 2", len(visible))
+	}
+}
+
+// TestGetActualIndexWithFilter tests index mapping with filter active.
+func TestGetActualIndexWithFilter(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
+		{ID: "plugin3@m", Name: "plugin3", IsGroupHeader: false},
+	}
+	m.filterActive = true
+	m.filterText = "plugin"
+	m.filteredIdx = []int{0, 2} // filtered shows plugins 1 and 3 (indices 0 and 2)
+	m.listOffset = 0
+
+	actualIdx := m.getActualIndex(0)
+	if actualIdx != 0 {
+		t.Errorf("getActualIndex(0) = %d, want 0", actualIdx)
+	}
+
+	actualIdx = m.getActualIndex(1)
+	if actualIdx != 2 {
+		t.Errorf("getActualIndex(1) = %d, want 2", actualIdx)
+	}
+}
+
+// TestGetActualIndexWithoutFilter tests index mapping with filter inactive.
+func TestGetActualIndexWithoutFilter(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.plugins = []PluginState{
+		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
+	}
+	m.filterActive = false
+	m.listOffset = 1
+
+	actualIdx := m.getActualIndex(0)
+	if actualIdx != 1 {
+		t.Errorf("getActualIndex(0) = %d, want 1 (with offset)", actualIdx)
+	}
+}
+
+// TestRenderFilterInput tests filter input rendering when active.
+func TestRenderFilterInput(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.filterActive = true
+	m.filterText = "test"
+
+	output := m.renderFilterInput(m.styles)
+
+	if !strings.Contains(output, "/test") {
+		t.Errorf("output should contain '/test', got %q", output)
+	}
+	if !strings.Contains(output, "█") {
+		t.Error("output should contain cursor █")
+	}
+}
+
+// TestRenderFilterInputInactive tests no output when filter inactive.
+func TestRenderFilterInputInactive(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.filterActive = false
+
+	output := m.renderFilterInput(m.styles)
+
+	if output != "" {
+		t.Errorf("output should be empty when inactive, got %q", output)
+	}
+}
+
+// --- Refresh Functionality Tests ---
+
+// TestHandleRefreshKey tests refresh key sets loading and returns loadPlugins command.
+func TestHandleRefreshKey(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.loading = false
+
+	result, cmd := m.handleRefreshKey()
+	m = result.(*Model)
+
+	if !m.loading {
+		t.Error("loading should be true after refresh")
+	}
+	if cmd == nil {
+		t.Error("cmd should not be nil (should return loadPlugins)")
+	}
+}
+
+// --- Quit Confirmation Tests ---
+
+// TestHandleQuitKeyShowsConfirmation tests quit confirmation when pending changes.
+func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.pending["test@m"] = claude.ScopeLocal
+	m.showQuitConfirm = false
+
+	result, cmd := m.handleQuitKey()
+	m = result.(*Model)
+
+	if !m.showQuitConfirm {
+		t.Error("showQuitConfirm should be true when pending changes")
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil (not quitting yet)")
+	}
+}
+
+// TestHandleQuitKeyQuitsWhenNoPending tests quit quits when no pending changes.
+func TestHandleQuitKeyQuitsWhenNoPending(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.pending = make(map[string]claude.Scope)
+
+	_, cmd := m.handleQuitKey()
+
+	if cmd == nil {
+		t.Error("cmd should not be nil (should return Quit)")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Error("cmd should return tea.Quit message")
+	}
+}
+
+// TestRenderQuitConfirmation tests quit confirmation modal content.
+func TestRenderQuitConfirmation(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.width = 100
+	m.height = 30
+	m.pending["plugin1@m"] = claude.ScopeLocal
+	m.pending["plugin2@m"] = claude.ScopeNone
+
+	output := m.renderQuitConfirmation(m.styles)
+
+	if !strings.Contains(output, "Quit Without Applying") {
+		t.Error("output should contain 'Quit Without Applying'")
+	}
+	if !strings.Contains(output, "2") {
+		t.Error("output should show pending count")
+	}
+	if !strings.Contains(output, "Press q again") {
+		t.Error("output should show q to quit instruction")
+	}
+}
+
+// --- Mouse Support Tests ---
+
+// TestHandleMouseLeftClick tests left click selects item in left pane.
+func TestHandleMouseLeftClick(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.width = 100
+	m.height = 30
+	m.plugins = []PluginState{
+		{ID: "plugin1@m", Name: "plugin1", IsGroupHeader: false},
+		{ID: "plugin2@m", Name: "plugin2", IsGroupHeader: false},
+		{ID: "plugin3@m", Name: "plugin3", IsGroupHeader: false},
+	}
+	m.selectedIdx = 0
+	m.filterActive = false
+	m.listOffset = 0
+
+	// Click at X=10 (within left pane, width/3 - 2 = 100/3 - 2 = 33 - 2 = 31)
+	// Y=3 with verticalOffset=1 gives row=3-1+0=2, which is the third plugin (index 2)
+	msg := tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+		X:      10, // Left side (within left pane)
+		Y:      3,  // Calculate row based on offset
+	}
+
+	result, _ := m.handleMouse(msg)
+	m = result.(*Model)
+
+	// row = Y - verticalOffset + listOffset = 3 - 1 + 0 = 2
+	// So selectedIdx should be plugins[2] = plugin3@m (index 2)
+	if m.selectedIdx != 2 {
+		t.Errorf("selectedIdx = %d, want 2 (third item at row 2)", m.selectedIdx)
+	}
+}
+
+// TestHandleMouseWheelUp tests mouse wheel up scrolls up.
+func TestHandleMouseWheelUp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.width = 100
+	m.height = 30
+	m.plugins = []PluginState{
+		{ID: "p1@m", Name: "p1", IsGroupHeader: false},
+		{ID: "p2@m", Name: "p2", IsGroupHeader: false},
+		{ID: "p3@m", Name: "p3", IsGroupHeader: false},
+		{ID: "p4@m", Name: "p4", IsGroupHeader: false},
+	}
+	m.selectedIdx = 3
+
+	msg := tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelUp,
+	}
+
+	result, _ := m.handleMouse(msg)
+	m = result.(*Model)
+
+	// Should have moved up by 3
+	if m.selectedIdx >= 3 {
+		t.Errorf("selectedIdx = %d, should have moved up", m.selectedIdx)
+	}
+}
+
+// TestHandleMouseWheelDown tests mouse wheel down scrolls down.
+func TestHandleMouseWheelDown(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client)
+	m.width = 100
+	m.height = 30
+	m.plugins = []PluginState{
+		{ID: "p1@m", Name: "p1", IsGroupHeader: false},
+		{ID: "p2@m", Name: "p2", IsGroupHeader: false},
+		{ID: "p3@m", Name: "p3", IsGroupHeader: false},
+		{ID: "p4@m", Name: "p4", IsGroupHeader: false},
+	}
+	m.selectedIdx = 0
+
+	msg := tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	}
+
+	result, _ := m.handleMouse(msg)
+	m = result.(*Model)
+
+	// Should have moved down by 3
+	if m.selectedIdx <= 0 {
+		t.Errorf("selectedIdx = %d, should have moved down", m.selectedIdx)
+	}
+}

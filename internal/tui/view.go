@@ -197,7 +197,7 @@ func (m *Model) renderHelp(styles Styles) string {
 	}
 
 	if len(m.pending) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • Enter: apply • /: filter • r: refresh • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • q: quit")
 	}
 	return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • /: filter • r: refresh • q: quit")
 }
