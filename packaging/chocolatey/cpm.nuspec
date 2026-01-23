@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>cpm</id>
+    <version>$version$</version>
+    <title>cpm - Claude Plugin Manager</title>
+    <authors>open-cli-collective</authors>
+    <projectUrl>https://github.com/open-cli-collective/cpm</projectUrl>
+    <licenseUrl>https://github.com/open-cli-collective/cpm/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/open-cli-collective/cpm</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/open-cli-collective/cpm/issues</bugTrackerUrl>
+    <tags>claude ai plugin manager tui cli</tags>
+    <summary>TUI for managing Claude Code plugins with clear scope visibility</summary>
+    <description>
+cpm (Claude Plugin Manager) is a terminal user interface application that manages Claude Code plugins with clear visibility into installation scopes (local vs project).
+
+Features:
+- Two-pane TUI for plugin management
+- Clear scope indicators (local, project, user)
+- Batch install/uninstall operations
+- Search and filter plugins
+- Keyboard and mouse navigation
+    </description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

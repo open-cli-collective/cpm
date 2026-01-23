@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: OpenCLICollective.cpm
+PackageVersion: "$version$"
+PackageName: cpm
+Publisher: open-cli-collective
+License: MIT
+ShortDescription: TUI for managing Claude Code plugins with clear scope visibility
+Description: |
+  cpm (Claude Plugin Manager) is a terminal user interface application that manages
+  Claude Code plugins with clear visibility into installation scopes (local vs project).
+Moniker: cpm
+Tags:
+  - claude
+  - ai
+  - plugin
+  - manager
+  - tui
+  - cli
+PackageUrl: https://github.com/open-cli-collective/cpm
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/open-cli-collective/cpm/releases/download/v$version$/cpm_$version$_windows_amd64.zip
+    InstallerType: zip
+    InstallerSha256: "$checksum$"
+    NestedInstallerFiles:
+      - RelativeFilePath: cpm.exe
+        PortableCommandAlias: cpm
+ManifestType: singleton
+ManifestVersion: 1.6.0
