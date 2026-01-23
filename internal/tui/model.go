@@ -176,6 +176,9 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 		installedByID[p.ID] = p
 	}
 
+	// Track which installed plugins we've seen via available list
+	seenInstalled := make(map[string]bool)
+
 	// Group by marketplace
 	byMarketplace := make(map[string][]PluginState)
 
@@ -188,8 +191,18 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 			state.InstalledScope = installed.Scope
 			state.Enabled = installed.Enabled
 			state.Version = installed.Version
+			seenInstalled[p.PluginID] = true
 		}
 
+		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
+	}
+
+	// Add installed plugins that weren't in the available list
+	for _, p := range list.Installed {
+		if seenInstalled[p.ID] {
+			continue // Already added via available list
+		}
+		state := PluginStateFromInstalled(p)
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
