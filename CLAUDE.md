@@ -1,6 +1,6 @@
 # cpm - Claude Plugin Manager
 
-Last verified: 2026-01-22
+Last verified: 2026-01-23
 
 A TUI application for managing Claude Code plugins with clear visibility into installation scopes.
 
@@ -81,5 +81,32 @@ Example: `feat(tui): add plugin filtering with / key`
 
 1. **On every push/PR**: CI runs lint, test, build
 2. **On PR**: Artifacts built for all platforms (downloadable for testing)
-3. **On merge to main**: release-please creates/updates release PR
-4. **On release PR merge**: GoReleaser builds and publishes to GitHub Releases, Homebrew, Chocolatey, WinGet
+3. **On merge to main with `feat:` or `fix:` commit**: Auto-release creates tag and triggers release
+4. **On tag push**: GoReleaser builds and publishes to GitHub Releases and Homebrew
+
+### Version Scheme
+
+- Base version stored in `version.txt` (e.g., `0.1`)
+- Released version: `v{base}.{run_number}` (e.g., `v0.1.42`)
+- Only `feat:` and `fix:` commits trigger releases (must also change Go files)
+
+### When to Bump version.txt
+
+After completing work, analyze changes and suggest a version bump if appropriate:
+
+| Change Type | Action | Example |
+|-------------|--------|---------|
+| Bug fixes only | No bump needed | Fix mouse click offset |
+| New minor features | No bump needed | Add keyboard shortcut |
+| Significant new feature | Bump minor (0.1 → 0.2) | Add plugin search/filter |
+| Major new capability | Bump minor (0.2 → 0.3) | Add bulk operations |
+| Breaking changes | Bump major (0.x → 1.0) | Change CLI flags, config format |
+| Stability milestone | Bump major (0.x → 1.0) | Ready for production use |
+
+**Bump triggers to watch for:**
+- New commands or major UI modes
+- Changes to data structures that affect saved state
+- New external dependencies or integrations
+- Significant UX changes users will notice
+
+**How to bump:** Edit `version.txt` and commit with `chore: bump version to X.Y`

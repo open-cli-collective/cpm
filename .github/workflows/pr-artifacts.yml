@@ -40,15 +40,19 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.head_ref }}
         run: |
           BINARY_NAME="cpm"
           if [ "$GOOS" = "windows" ]; then
             BINARY_NAME="cpm.exe"
           fi
           go build -ldflags="-s -w \
-            -X github.com/open-cli-collective/cpm/internal/version.Version=pr-${{ github.event.pull_request.number }} \
-            -X github.com/open-cli-collective/cpm/internal/version.Commit=${{ github.sha }} \
-            -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -X github.com/open-cli-collective/cpm/internal/version.Version=pr-${PR_NUMBER} \
+            -X github.com/open-cli-collective/cpm/internal/version.Commit=${COMMIT_SHA} \
+            -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -X github.com/open-cli-collective/cpm/internal/version.Branch=${BRANCH_NAME}" \
             -o ${BINARY_NAME} ./cmd/cpm
 
       - name: Create archive

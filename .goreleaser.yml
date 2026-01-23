@@ -5,26 +5,27 @@ project_name: cpm
 before:
   hooks:
     - go mod tidy
-    - go mod download
+    - go test ./...
 
 builds:
-  - id: default
+  - id: cpm
     main: ./cmd/cpm
     binary: cpm
     env:
       - CGO_ENABLED=0
     goos:
-      - linux
       - darwin
+      - linux
       - windows
     goarch:
       - amd64
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/open-cli-collective/cpm/internal/version.Version={{ .Version }}
-      - -X github.com/open-cli-collective/cpm/internal/version.Commit={{ .FullCommit }}
-      - -X github.com/open-cli-collective/cpm/internal/version.Date={{ .Date }}
+      - -X github.com/open-cli-collective/cpm/internal/version.Version={{.Version}}
+      - -X github.com/open-cli-collective/cpm/internal/version.Commit={{.Commit}}
+      - -X github.com/open-cli-collective/cpm/internal/version.Date={{.Date}}
+      - -X github.com/open-cli-collective/cpm/internal/version.Branch={{.Branch}}
     flags:
       - -trimpath
     ignore:
@@ -33,24 +34,60 @@ builds:
 
 archives:
   - id: default
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
-      - README.md
       - LICENSE
+      - README.md
+
+# Homebrew cask with auto-quarantine removal for unsigned binaries
+homebrew_casks:
+  - name: cpm
+    repository:
+      owner: open-cli-collective
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/open-cli-collective/claude-plugin-manager
+    description: "TUI for managing Claude Code plugins"
+    binary: cpm
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cpm"]
+    caveats: |
+      cpm has been installed. Run 'cpm --help' for usage.
 
 checksum:
-  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
-  algorithm: sha256
+  name_template: 'checksums.txt'
 
 changelog:
-  use: github-native
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - '^Merge pull request'
+  groups:
+    - title: 'Features'
+      regexp: '^feat:'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^fix:'
+      order: 1
+    - title: 'Other'
+      order: 999
 
 release:
   github:
     owner: open-cli-collective
-    name: cpm
+    name: claude-plugin-manager
   draft: false
   prerelease: auto
