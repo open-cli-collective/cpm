@@ -75,8 +75,7 @@ func DefaultStyles() Styles {
 
 		GroupHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPrimary).
-			MarginTop(1),
+			Foreground(colorPrimary),
 
 		Description: lipgloss.NewStyle().
 			Foreground(colorMuted).
