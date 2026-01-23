@@ -3,7 +3,6 @@ package tui
 
 import (
 	"sort"
-	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/open-cli-collective/cpm/internal/claude"
@@ -73,14 +72,28 @@ func parsePluginID(id string) (name, marketplace string) {
 type Model struct { //nolint:govet
 	// Client for Claude CLI operations
 	client claude.Client
+
+	// Styles and keys
+	styles Styles
+	keys   KeyBindings
+
 	// Plugin data
 	plugins []PluginState
-	// Pending changes (plugin ID -> desired scope)
-	pending map[string]claude.Scope
+
 	// UI state
 	selectedIdx int
+	listOffset  int
 	width       int
 	height      int
+
+	// Pending changes (plugin ID -> desired scope)
+	pending map[string]claude.Scope
+
+	// View mode
+	mode         Mode
+	progressMsgs []string
+	errorMsgs    []string
+
 	// Loading state
 	loading bool
 	err     error
@@ -90,6 +103,8 @@ type Model struct { //nolint:govet
 func NewModel(client claude.Client) *Model {
 	return &Model{
 		client:  client,
+		styles:  DefaultStyles(),
+		keys:    DefaultKeyBindings(),
 		pending: make(map[string]claude.Scope),
 		loading: true,
 	}
@@ -176,15 +191,10 @@ func mergePlugins(list *claude.PluginList) []PluginState {
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		}
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
 
 	case pluginsLoadedMsg:
 		m.loading = false
@@ -196,10 +206,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		return m, nil
 
 	case pluginsErrorMsg:
 		m.loading = false
 		m.err = msg.err
+		return m, nil
+	}
+
+	// Handle mode-specific updates
+	switch m.mode {
+	case ModeMain:
+		return m.updateMain(msg)
 	}
 
 	return m, nil
@@ -215,24 +233,10 @@ func (m *Model) View() string {
 		return "Error: " + m.err.Error() + "\n\nPress q to quit."
 	}
 
-	return m.renderMain()
-}
-
-// renderMain renders the main view (placeholder for now).
-func (m *Model) renderMain() string {
-	if len(m.plugins) == 0 {
-		return "No plugins found.\n\nPress q to quit."
+	switch m.mode {
+	case ModeMain:
+		return m.renderMainView()
 	}
 
-	// Count non-header plugins
-	count := 0
-	for _, p := range m.plugins {
-		if !p.IsGroupHeader {
-			count++
-		}
-	}
-
-	return "cpm - Claude Plugin Manager\n\n" +
-		"Found " + strconv.Itoa(count) + " plugins.\n\n" +
-		"Press q to quit."
+	return ""
 }
