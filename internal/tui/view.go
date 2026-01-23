@@ -273,10 +273,16 @@ func (m *Model) renderHelp(styles Styles) string {
 		return styles.Help.Render("Type to filter • Enter: select • Esc: cancel")
 	}
 
-	if len(m.pending) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • q: quit")
+	// Show mouse state indicator
+	mouseIndicator := "m: mouse off"
+	if m.mouseEnabled {
+		mouseIndicator = "m: mouse on"
 	}
-	return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • /: filter • r: refresh • q: quit")
+
+	if len(m.pending) > 0 {
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	}
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.

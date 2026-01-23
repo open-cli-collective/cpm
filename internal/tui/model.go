@@ -169,17 +169,21 @@ type Model struct { //nolint:govet
 
 	// Quit confirmation
 	showQuitConfirm bool
+
+	// Mouse support
+	mouseEnabled bool
 }
 
 // NewModel creates a new Model with the given client and working directory.
 func NewModel(client claude.Client, workingDir string) *Model {
 	return &Model{
-		client:     client,
-		workingDir: workingDir,
-		styles:     DefaultStyles(),
-		keys:       DefaultKeyBindings(),
-		pending:    make(map[string]claude.Scope),
-		loading:    true,
+		client:       client,
+		workingDir:   workingDir,
+		styles:       DefaultStyles(),
+		keys:         DefaultKeyBindings(),
+		pending:      make(map[string]claude.Scope),
+		loading:      true,
+		mouseEnabled: true,
 	}
 }
 

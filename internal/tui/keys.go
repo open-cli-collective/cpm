@@ -21,6 +21,7 @@ type KeyBindings struct {
 	Escape    []string
 	Filter    []string
 	Refresh   []string
+	Mouse     []string
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -41,6 +42,7 @@ func DefaultKeyBindings() KeyBindings {
 		Escape:    []string{"esc"},
 		Filter:    []string{"/"},
 		Refresh:   []string{"r"},
+		Mouse:     []string{"m"},
 	}
 }
 

@@ -48,10 +48,22 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if matchesKey(msg, keys.Refresh) {
 		return m.handleRefreshKey()
 	}
+	if matchesKey(msg, keys.Mouse) {
+		return m.handleMouseToggle()
+	}
 
 	// Handle keys that modify state
 	m.handleRegularKeyPress(msg, keys)
 	return m, nil
+}
+
+// handleMouseToggle toggles mouse capture on/off.
+func (m *Model) handleMouseToggle() (tea.Model, tea.Cmd) {
+	m.mouseEnabled = !m.mouseEnabled
+	if m.mouseEnabled {
+		return m, tea.EnableMouseCellMotion
+	}
+	return m, tea.DisableMouse
 }
 
 // handleRegularKeyPress handles all non-command keys that modify state.
