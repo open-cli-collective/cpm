@@ -5,8 +5,6 @@
 
 A terminal user interface for managing Claude Code plugins with clear visibility into installation scopes.
 
-![cpm screenshot](docs/screenshot.png)
-
 ## Features
 
 - **Two-pane TUI** - Plugin list on the left, details on the right
