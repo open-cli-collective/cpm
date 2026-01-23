@@ -57,7 +57,17 @@ func (m *Model) renderList(styles Styles) string {
 
 	for i := start; i < end; i++ {
 		plugin := plugins[i]
-		isSelected := m.getActualIndex(i) == m.selectedIdx
+		// When filtering, getActualIndex converts filtered index to original.
+		// When not filtering, i is already the actual index.
+		var isSelected bool
+		if m.filterActive && m.filterText != "" {
+			// i is index into filtered list, need to get original index
+			if i < len(m.filteredIdx) {
+				isSelected = m.filteredIdx[i] == m.selectedIdx
+			}
+		} else {
+			isSelected = i == m.selectedIdx
+		}
 		line := m.renderListItem(plugin, isSelected, styles)
 		lines = append(lines, line)
 	}
