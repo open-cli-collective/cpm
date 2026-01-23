@@ -26,28 +26,39 @@ func (m *Model) renderMainView() string {
 
 	help := m.renderHelp(styles)
 
+	// Add filter input if active
+	if m.filterActive {
+		filter := m.renderFilterInput(styles)
+		return lipgloss.JoinVertical(lipgloss.Left, filter, main, help)
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)
 }
 
 // renderList renders the left pane plugin list.
 func (m *Model) renderList(styles Styles) string {
-	if len(m.plugins) == 0 {
+	plugins := m.getVisiblePlugins()
+	if len(plugins) == 0 {
+		if m.filterActive && m.filterText != "" {
+			return "No matches for: " + m.filterText
+		}
 		return "No plugins found."
 	}
 
 	var lines []string
-	visibleHeight := styles.LeftPane.GetHeight() - 2 // Account for padding
+	visibleHeight := styles.LeftPane.GetHeight() - 2
 
 	// Calculate visible range
 	start := m.listOffset
 	end := start + visibleHeight
-	if end > len(m.plugins) {
-		end = len(m.plugins)
+	if end > len(plugins) {
+		end = len(plugins)
 	}
 
 	for i := start; i < end; i++ {
-		plugin := m.plugins[i]
-		line := m.renderListItem(plugin, i == m.selectedIdx, styles)
+		plugin := plugins[i]
+		isSelected := m.getActualIndex(i) == m.selectedIdx
+		line := m.renderListItem(plugin, isSelected, styles)
 		lines = append(lines, line)
 	}
 
@@ -181,10 +192,14 @@ func (m *Model) renderDetails(styles Styles) string {
 
 // renderHelp renders the help bar at the bottom.
 func (m *Model) renderHelp(styles Styles) string {
-	if len(m.pending) > 0 {
-		return styles.Help.Render("↑↓/jk: navigate • l/p: install local/project • u: uninstall • Tab: toggle • Enter: apply • Esc: clear • q: quit")
+	if m.filterActive {
+		return styles.Help.Render("Type to filter • Enter: select • Esc: cancel")
 	}
-	return styles.Help.Render("↑↓/jk: navigate • l/p: install local/project • u: uninstall • Tab: toggle • q: quit")
+
+	if len(m.pending) > 0 {
+		return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • Enter: apply • /: filter • r: refresh • q: quit")
+	}
+	return styles.Help.Render("↑↓: navigate • l/p: local/project • u: uninstall • Tab: toggle • /: filter • r: refresh • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
@@ -334,6 +349,65 @@ func (m *Model) renderErrorSummary(styles Styles) string {
 		BorderForeground(colorPrimary).
 		Padding(1, 2).
 		Width(60).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// renderFilterInput renders the filter input bar.
+func (m *Model) renderFilterInput(styles Styles) string {
+	if !m.filterActive {
+		return ""
+	}
+
+	input := "/" + m.filterText + "█"
+	return styles.Header.Render(input)
+}
+
+// getVisiblePlugins returns plugins to display (filtered or all).
+func (m *Model) getVisiblePlugins() []PluginState {
+	if !m.filterActive || m.filterText == "" {
+		return m.plugins
+	}
+
+	if len(m.filteredIdx) == 0 {
+		return nil
+	}
+
+	result := make([]PluginState, len(m.filteredIdx))
+	for i, idx := range m.filteredIdx {
+		result[i] = m.plugins[idx]
+	}
+	return result
+}
+
+// getActualIndex converts a filtered index to the actual plugin index.
+func (m *Model) getActualIndex(filteredIndex int) int {
+	if !m.filterActive || m.filterText == "" {
+		return filteredIndex + m.listOffset
+	}
+	if filteredIndex+m.listOffset < len(m.filteredIdx) {
+		return m.filteredIdx[filteredIndex+m.listOffset]
+	}
+	return -1
+}
+
+// renderQuitConfirmation renders the quit confirmation modal.
+func (m *Model) renderQuitConfirmation(styles Styles) string {
+	var lines []string
+	lines = append(lines, styles.Header.Render(" Quit Without Applying? "))
+	lines = append(lines, "")
+	lines = append(lines, "You have "+strconv.Itoa(len(m.pending))+" pending change(s).")
+	lines = append(lines, "")
+	lines = append(lines, styles.Help.Render("Press q again to quit, Esc to cancel"))
+
+	content := strings.Join(lines, "\n")
+
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPending).
+		Padding(1, 2).
+		Width(40).
 		Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
