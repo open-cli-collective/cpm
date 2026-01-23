@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -184,4 +185,156 @@ func (m *Model) renderHelp(styles Styles) string {
 		return styles.Help.Render("↑↓/jk: navigate • l/p: install local/project • u: uninstall • Tab: toggle • Enter: apply • Esc: clear • q: quit")
 	}
 	return styles.Help.Render("↑↓/jk: navigate • l/p: install local/project • u: uninstall • Tab: toggle • q: quit")
+}
+
+// renderConfirmation renders the confirmation modal.
+func (m *Model) renderConfirmation(styles Styles) string {
+	if len(m.pending) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, styles.Header.Render(" Apply Changes? "))
+	lines = append(lines, "")
+
+	// List pending operations
+	installs := 0
+	uninstalls := 0
+	for pluginID, scope := range m.pending {
+		var action string
+		if scope == claude.ScopeNone {
+			action = styles.Pending.Render("Uninstall: ") + pluginID
+			uninstalls++
+		} else {
+			action = styles.ScopeProject.Render("Install ("+string(scope)+"): ") + pluginID
+			installs++
+		}
+		lines = append(lines, "  "+action)
+	}
+
+	lines = append(lines, "")
+	summary := ""
+	if installs > 0 {
+		summary += strconv.Itoa(installs) + " install(s)"
+	}
+	if uninstalls > 0 {
+		if summary != "" {
+			summary += ", "
+		}
+		summary += strconv.Itoa(uninstalls) + " uninstall(s)"
+	}
+	lines = append(lines, styles.DetailLabel.Render("Total: ")+summary)
+	lines = append(lines, "")
+	lines = append(lines, styles.Help.Render("Press Enter to confirm, Esc to cancel"))
+
+	content := strings.Join(lines, "\n")
+
+	// Center the modal
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 2).
+		Width(50).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// renderProgress renders the progress modal.
+func (m *Model) renderProgress(styles Styles) string {
+	var lines []string
+	lines = append(lines, styles.Header.Render(" Applying Changes "))
+	lines = append(lines, "")
+
+	for i, op := range m.operations {
+		var status string
+		switch {
+		case i < m.currentOpIdx:
+			// Completed
+			if i < len(m.operationErrors) && m.operationErrors[i] != "" {
+				status = "✗ Failed: " + m.operationErrors[i]
+			} else {
+				status = "✓ Done"
+			}
+		case i == m.currentOpIdx:
+			// In progress
+			status = "⟳ Running..."
+		default:
+			// Pending
+			status = "○ Pending"
+		}
+
+		action := "Install"
+		if !op.IsInstall {
+			action = "Uninstall"
+		}
+		scopeStr := ""
+		if op.IsInstall {
+			scopeStr = " (" + string(op.Scope) + ")"
+		}
+
+		line := status + " " + action + scopeStr + ": " + op.PluginID
+		lines = append(lines, "  "+line)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, styles.Help.Render("Please wait..."))
+
+	content := strings.Join(lines, "\n")
+
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 2).
+		Width(60).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// renderErrorSummary renders the error summary modal.
+func (m *Model) renderErrorSummary(styles Styles) string {
+	var lines []string
+
+	// Count errors
+	errorCount := 0
+	for _, e := range m.operationErrors {
+		if e != "" {
+			errorCount++
+		}
+	}
+
+	if errorCount == 0 {
+		lines = append(lines, styles.Header.Render(" All Changes Applied "))
+	} else {
+		lines = append(lines, styles.Header.Render(" Completed With Errors "))
+	}
+	lines = append(lines, "")
+
+	successCount := len(m.operations) - errorCount
+	lines = append(lines, styles.ScopeProject.Render(strconv.Itoa(successCount)+" succeeded"))
+	if errorCount > 0 {
+		lines = append(lines, styles.Pending.Render(strconv.Itoa(errorCount)+" failed"))
+		lines = append(lines, "")
+		lines = append(lines, styles.DetailLabel.Render("Errors:"))
+		for i, op := range m.operations {
+			if i < len(m.operationErrors) && m.operationErrors[i] != "" {
+				lines = append(lines, "  • "+op.PluginID+": "+m.operationErrors[i])
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, styles.Help.Render("Press Enter or Esc to continue"))
+
+	content := strings.Join(lines, "\n")
+
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(1, 2).
+		Width(60).
+		Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }

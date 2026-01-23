@@ -95,6 +95,12 @@ type Model struct { //nolint:govet
 	// Loading state
 	loading bool
 	err     error
+
+	// Execution state
+	operations      []Operation
+	currentOpIdx    int
+	operationErrors []string
+	showConfirm     bool
 }
 
 // NewModel creates a new Model with the given client.
@@ -121,6 +127,19 @@ type pluginsLoadedMsg struct {
 // pluginsErrorMsg is sent when loading fails.
 type pluginsErrorMsg struct {
 	err error
+}
+
+// Operation represents a pending change to execute.
+type Operation struct {
+	PluginID  string
+	Scope     claude.Scope
+	IsInstall bool // true for install, false for uninstall
+}
+
+// operationDoneMsg is sent when an operation completes.
+type operationDoneMsg struct {
+	err error
+	op  Operation
 }
 
 // loadPlugins fetches plugin data from the Claude CLI.
@@ -212,9 +231,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle confirmation dialog
+	if m.showConfirm {
+		return m.updateConfirmation(msg)
+	}
+
 	// Handle mode-specific updates
-	if m.mode == ModeMain {
+	switch m.mode {
+	case ModeMain:
 		return m.updateMain(msg)
+	case ModeProgress:
+		return m.updateProgress(msg)
+	case ModeError:
+		return m.updateError(msg)
 	}
 
 	return m, nil
@@ -230,8 +259,17 @@ func (m *Model) View() string {
 		return "Error: " + m.err.Error() + "\n\nPress q to quit."
 	}
 
-	if m.mode == ModeMain {
+	if m.showConfirm {
+		return m.renderConfirmation(m.styles)
+	}
+
+	switch m.mode {
+	case ModeMain:
 		return m.renderMainView()
+	case ModeProgress:
+		return m.renderProgress(m.styles)
+	case ModeError:
+		return m.renderErrorSummary(m.styles)
 	}
 
 	return ""

@@ -52,6 +52,11 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
 
+	case matchesKey(msg, keys.Enter):
+		if len(m.pending) > 0 {
+			m.showConfirm = true
+		}
+
 	case matchesKey(msg, keys.Escape):
 		m.clearPending()
 	}
@@ -254,4 +259,108 @@ func (m *Model) getCurrentDesiredScope(plugin *PluginState) claude.Scope {
 		return pending
 	}
 	return plugin.InstalledScope
+}
+
+// updateConfirmation handles messages in confirmation mode.
+func (m *Model) updateConfirmation(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch {
+		case matchesKey(keyMsg, m.keys.Enter):
+			// Start execution
+			m.showConfirm = false
+			return m.startExecution()
+		case matchesKey(keyMsg, m.keys.Escape), matchesKey(keyMsg, m.keys.Quit):
+			// Cancel
+			m.showConfirm = false
+		}
+	}
+	return m, nil
+}
+
+// startExecution begins executing pending operations.
+func (m *Model) startExecution() (tea.Model, tea.Cmd) {
+	// Build operation list
+	m.operations = nil
+	for pluginID, scope := range m.pending {
+		isInstall := scope != claude.ScopeNone
+		m.operations = append(m.operations, Operation{
+			PluginID:  pluginID,
+			Scope:     scope,
+			IsInstall: isInstall,
+		})
+	}
+
+	m.currentOpIdx = 0
+	m.operationErrors = make([]string, len(m.operations))
+	m.mode = ModeProgress
+
+	// Start first operation
+	if len(m.operations) > 0 {
+		return m, m.executeOperation(m.operations[0])
+	}
+
+	return m, nil
+}
+
+// executeOperation returns a command that executes a single operation.
+func (m *Model) executeOperation(op Operation) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if op.IsInstall {
+			err = m.client.InstallPlugin(op.PluginID, op.Scope)
+		} else {
+			err = m.client.UninstallPlugin(op.PluginID, op.Scope)
+		}
+
+		return operationDoneMsg{op: op, err: err}
+	}
+}
+
+// updateProgress handles messages in progress mode.
+func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		// Record result
+		if opMsg.err != nil {
+			m.operationErrors[m.currentOpIdx] = opMsg.err.Error()
+		}
+
+		m.currentOpIdx++
+
+		// Execute next operation or finish
+		if m.currentOpIdx < len(m.operations) {
+			return m, m.executeOperation(m.operations[m.currentOpIdx])
+		}
+
+		// All done - refresh and show summary
+		m.mode = ModeError
+		m.pending = make(map[string]claude.Scope)
+		return m, m.loadPlugins
+	}
+	return m, nil
+}
+
+// updateError handles messages in error mode.
+func (m *Model) updateError(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case matchesKey(msg, m.keys.Enter), matchesKey(msg, m.keys.Escape):
+			m.mode = ModeMain
+			m.operations = nil
+			m.operationErrors = nil
+		case matchesKey(msg, m.keys.Quit):
+			return m, tea.Quit
+		}
+
+	case pluginsLoadedMsg:
+		m.plugins = msg.plugins
+		// Re-select first non-header
+		for i, p := range m.plugins {
+			if !p.IsGroupHeader {
+				m.selectedIdx = i
+				break
+			}
+		}
+	}
+	return m, nil
 }
