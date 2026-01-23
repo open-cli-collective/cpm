@@ -22,21 +22,22 @@ const (
 )
 
 // PluginState holds the display state for a plugin.
+// Fields are ordered for optimal memory alignment (strings/pointers first, bools last).
 type PluginState struct {
-	ID             string
-	Name           string
+	Components     *claude.PluginComponents
+	Version        string
 	Description    string
 	AuthorName     string
 	AuthorEmail    string
 	Marketplace    string
-	Version        string
-	InstalledScope claude.Scope
-	Enabled        bool
-	IsGroupHeader  bool // True for marketplace group headers (non-selectable)
+	ID             string
 	InstallPath    string
-	Components     *claude.PluginComponents
-	IsExternal     bool   // True for plugins sourced from external URLs (GitHub, etc.)
-	ExternalURL    string // The external URL if IsExternal is true
+	ExternalURL    string
+	InstalledScope claude.Scope
+	Name           string
+	Enabled        bool
+	IsGroupHeader  bool
+	IsExternal     bool
 }
 
 // PluginStateFromInstalled creates a PluginState from an installed plugin.
@@ -126,52 +127,29 @@ func parsePluginID(id string) (name, marketplace string) {
 }
 
 // Model is the main application model.
-type Model struct { //nolint:govet
-	// Client for Claude CLI operations
-	client claude.Client
-
-	// Working directory for filtering project-scoped plugins
-	workingDir string
-
-	// Styles and keys
-	styles Styles
-	keys   KeyBindings
-
-	// Plugin data
-	plugins []PluginState
-
-	// UI state
-	selectedIdx int
-	listOffset  int
-	width       int
-	height      int
-
-	// Pending changes (plugin ID -> desired scope)
-	pending map[string]claude.Scope
-
-	// View mode
-	mode Mode
-
-	// Loading state
-	loading bool
-	err     error
-
-	// Execution state
-	operations      []Operation
-	currentOpIdx    int
+type Model struct {
+	styles          Styles
+	err             error
+	client          claude.Client
+	pending         map[string]claude.Scope
+	workingDir      string
+	filterText      string
+	keys            KeyBindings
+	plugins         []PluginState
+	filteredIdx     []int
 	operationErrors []string
+	operations      []Operation
+	selectedIdx     int
+	mode            Mode
+	currentOpIdx    int
+	height          int
+	width           int
+	listOffset      int
+	loading         bool
 	showConfirm     bool
-
-	// Filter state
-	filterText   string
-	filterActive bool
-	filteredIdx  []int // indices into plugins that match filter
-
-	// Quit confirmation
+	filterActive    bool
 	showQuitConfirm bool
-
-	// Mouse support
-	mouseEnabled bool
+	mouseEnabled    bool
 }
 
 // NewModel creates a new Model with the given client and working directory.

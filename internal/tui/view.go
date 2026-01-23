@@ -152,6 +152,32 @@ func (m *Model) renderDetails(styles Styles) string {
 	lines = append(lines, styles.DetailTitle.Render(plugin.Name))
 	lines = append(lines, "")
 
+	// Basic info
+	lines = append(lines, m.renderPluginInfo(plugin, styles)...)
+
+	// Pending change
+	lines = m.appendPendingChange(lines, plugin, styles)
+
+	// Description
+	if plugin.Description != "" {
+		lines = append(lines, "")
+		lines = append(lines, styles.DetailLabel.Render("Description:"))
+		lines = append(lines, styles.DetailDescription.Render(plugin.Description))
+	}
+
+	// Components (what comes with this plugin)
+	lines = m.appendComponents(lines, plugin, styles)
+
+	// Show external plugin notice if applicable
+	lines = m.appendExternalNotice(lines, plugin, styles)
+
+	return strings.Join(lines, "\n")
+}
+
+// renderPluginInfo renders the basic plugin information fields.
+func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
+	var lines []string
+
 	// Plugin ID
 	lines = append(lines, styles.DetailLabel.Render("ID: ")+
 		styles.DetailValue.Render(plugin.ID))
@@ -177,94 +203,96 @@ func (m *Model) renderDetails(styles Styles) string {
 	}
 
 	// Status
-	status := "Not installed"
-	if plugin.InstalledScope != claude.ScopeNone {
-		status = "Installed (" + string(plugin.InstalledScope) + ")"
-		if plugin.Enabled {
-			status += " - Enabled"
-		} else {
-			status += " - Disabled"
-		}
-	}
+	status := m.getStatusText(plugin)
 	lines = append(lines, styles.DetailLabel.Render("Status: ")+
 		styles.DetailValue.Render(status))
 
-	// Pending change
-	if pending, ok := m.pending[plugin.ID]; ok {
-		var pendingStr string
-		if pending == claude.ScopeNone {
-			pendingStr = "Will be uninstalled"
-		} else {
-			pendingStr = "Will be installed to " + string(pending)
-		}
-		lines = append(lines, styles.Pending.Render("Pending: "+pendingStr))
+	return lines
+}
+
+// getStatusText returns the status text for a plugin.
+func (m *Model) getStatusText(plugin PluginState) string {
+	if plugin.InstalledScope == claude.ScopeNone {
+		return "Not installed"
+	}
+	status := "Installed (" + string(plugin.InstalledScope) + ")"
+	if plugin.Enabled {
+		status += " - Enabled"
+	} else {
+		status += " - Disabled"
+	}
+	return status
+}
+
+// appendPendingChange appends pending change information if applicable.
+func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles Styles) []string {
+	pending, ok := m.pending[plugin.ID]
+	if !ok {
+		return lines
+	}
+	var pendingStr string
+	if pending == claude.ScopeNone {
+		pendingStr = "Will be uninstalled"
+	} else {
+		pendingStr = "Will be installed to " + string(pending)
+	}
+	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
+}
+
+// appendComponents appends component information if the plugin has any.
+func (m *Model) appendComponents(lines []string, plugin PluginState, styles Styles) []string {
+	if plugin.Components == nil {
+		return lines
 	}
 
-	// Description
-	if plugin.Description != "" {
-		lines = append(lines, "")
-		lines = append(lines, styles.DetailLabel.Render("Description:"))
-		lines = append(lines, styles.DetailDescription.Render(plugin.Description))
+	hasComponents := len(plugin.Components.Skills) > 0 ||
+		len(plugin.Components.Agents) > 0 ||
+		len(plugin.Components.Commands) > 0 ||
+		len(plugin.Components.Hooks) > 0 ||
+		len(plugin.Components.MCPs) > 0
+
+	if !hasComponents {
+		return lines
 	}
 
-	// Components (what comes with this plugin)
-	if plugin.Components != nil {
-		hasComponents := len(plugin.Components.Skills) > 0 ||
-			len(plugin.Components.Agents) > 0 ||
-			len(plugin.Components.Commands) > 0 ||
-			len(plugin.Components.Hooks) > 0 ||
-			len(plugin.Components.MCPs) > 0
+	lines = append(lines, "")
+	lines = append(lines, styles.DetailLabel.Render("Includes:"))
 
-		if hasComponents {
-			lines = append(lines, "")
-			lines = append(lines, styles.DetailLabel.Render("Includes:"))
+	lines = appendComponentCategory(lines, "Skills", plugin.Components.Skills, styles)
+	lines = appendComponentCategory(lines, "Agents", plugin.Components.Agents, styles)
+	lines = appendComponentCategory(lines, "Commands", plugin.Components.Commands, styles)
+	lines = appendComponentCategory(lines, "Hooks", plugin.Components.Hooks, styles)
+	lines = appendComponentCategory(lines, "MCPs", plugin.Components.MCPs, styles)
 
-			if len(plugin.Components.Skills) > 0 {
-				lines = append(lines, styles.ComponentCategory.Render("Skills"))
-				for _, skill := range plugin.Components.Skills {
-					lines = append(lines, styles.ComponentItem.Render("• "+skill))
-				}
-			}
-			if len(plugin.Components.Agents) > 0 {
-				lines = append(lines, styles.ComponentCategory.Render("Agents"))
-				for _, agent := range plugin.Components.Agents {
-					lines = append(lines, styles.ComponentItem.Render("• "+agent))
-				}
-			}
-			if len(plugin.Components.Commands) > 0 {
-				lines = append(lines, styles.ComponentCategory.Render("Commands"))
-				for _, cmd := range plugin.Components.Commands {
-					lines = append(lines, styles.ComponentItem.Render("• "+cmd))
-				}
-			}
-			if len(plugin.Components.Hooks) > 0 {
-				lines = append(lines, styles.ComponentCategory.Render("Hooks"))
-				for _, hook := range plugin.Components.Hooks {
-					lines = append(lines, styles.ComponentItem.Render("• "+hook))
-				}
-			}
-			if len(plugin.Components.MCPs) > 0 {
-				lines = append(lines, styles.ComponentCategory.Render("MCPs"))
-				for _, mcp := range plugin.Components.MCPs {
-					lines = append(lines, styles.ComponentItem.Render("• "+mcp))
-				}
-			}
-		}
+	return lines
+}
+
+// appendComponentCategory appends a category of components if non-empty.
+func appendComponentCategory(lines []string, category string, items []string, styles Styles) []string {
+	if len(items) == 0 {
+		return lines
 	}
-
-	// Show external plugin notice if applicable
-	if plugin.IsExternal && plugin.InstalledScope == claude.ScopeNone {
-		lines = append(lines, "")
-		lines = append(lines, styles.DetailLabel.Render("Source:"))
-		lines = append(lines, styles.DetailDescription.Render("External plugin (hosted on GitHub)"))
-		if plugin.ExternalURL != "" {
-			lines = append(lines, styles.Help.Render(plugin.ExternalURL))
-		}
-		lines = append(lines, "")
-		lines = append(lines, styles.Help.Render("Component details available after installation."))
+	lines = append(lines, styles.ComponentCategory.Render(category))
+	for _, item := range items {
+		lines = append(lines, styles.ComponentItem.Render("• "+item))
 	}
+	return lines
+}
 
-	return strings.Join(lines, "\n")
+// appendExternalNotice appends the external plugin notice if applicable.
+func (m *Model) appendExternalNotice(lines []string, plugin PluginState, styles Styles) []string {
+	if !plugin.IsExternal || plugin.InstalledScope != claude.ScopeNone {
+		return lines
+	}
+	lines = append(lines, "")
+	lines = append(lines, styles.DetailLabel.Render("Source:"))
+	lines = append(lines, styles.DetailDescription.Render("External plugin (hosted on GitHub)"))
+	if plugin.ExternalURL != "" {
+		lines = append(lines, styles.Help.Render(plugin.ExternalURL))
+	}
+	lines = append(lines, "")
+	lines = append(lines, styles.Help.Render("Component details available after installation."))
+	return lines
 }
 
 // renderHelp renders the help bar at the bottom.
