@@ -16,8 +16,8 @@ const (
 	ModeMain Mode = iota
 	// ModeProgress shows operation progress.
 	ModeProgress
-	// ModeError shows error summary.
-	ModeError
+	// ModeSummary shows completion summary (both successes and errors).
+	ModeSummary
 )
 
 // PluginState holds the display state for a plugin.
@@ -131,9 +131,10 @@ type pluginsErrorMsg struct {
 
 // Operation represents a pending change to execute.
 type Operation struct {
-	PluginID  string
-	Scope     claude.Scope
-	IsInstall bool // true for install, false for uninstall
+	PluginID      string
+	Scope         claude.Scope
+	OriginalScope claude.Scope // For uninstalls: the original scope to uninstall from
+	IsInstall     bool         // true for install, false for uninstall
 }
 
 // operationDoneMsg is sent when an operation completes.
@@ -242,7 +243,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMain(msg)
 	case ModeProgress:
 		return m.updateProgress(msg)
-	case ModeError:
+	case ModeSummary:
 		return m.updateError(msg)
 	}
 
@@ -268,7 +269,7 @@ func (m *Model) View() string {
 		return m.renderMainView()
 	case ModeProgress:
 		return m.renderProgress(m.styles)
-	case ModeError:
+	case ModeSummary:
 		return m.renderErrorSummary(m.styles)
 	}
 

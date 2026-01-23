@@ -283,11 +283,24 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 	m.operations = nil
 	for pluginID, scope := range m.pending {
 		isInstall := scope != claude.ScopeNone
-		m.operations = append(m.operations, Operation{
+		op := Operation{
 			PluginID:  pluginID,
 			Scope:     scope,
 			IsInstall: isInstall,
-		})
+		}
+
+		// For uninstalls, track the original scope
+		if !isInstall {
+			// Find the plugin to get its current installed scope
+			for _, p := range m.plugins {
+				if p.ID == pluginID && p.InstalledScope != claude.ScopeNone {
+					op.OriginalScope = p.InstalledScope
+					break
+				}
+			}
+		}
+
+		m.operations = append(m.operations, op)
 	}
 
 	m.currentOpIdx = 0
@@ -309,7 +322,8 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 		if op.IsInstall {
 			err = m.client.InstallPlugin(op.PluginID, op.Scope)
 		} else {
-			err = m.client.UninstallPlugin(op.PluginID, op.Scope)
+			// For uninstalls, use the original scope to uninstall from the specific scope
+			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
 		}
 
 		return operationDoneMsg{op: op, err: err}
@@ -332,7 +346,7 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// All done - refresh and show summary
-		m.mode = ModeError
+		m.mode = ModeSummary
 		m.pending = make(map[string]claude.Scope)
 		return m, m.loadPlugins
 	}
