@@ -166,6 +166,16 @@ func (m *Model) renderDetails(styles Styles) string {
 			styles.DetailValue.Render(plugin.Version))
 	}
 
+	// Author
+	if plugin.AuthorName != "" {
+		authorStr := plugin.AuthorName
+		if plugin.AuthorEmail != "" {
+			authorStr += " <" + plugin.AuthorEmail + ">"
+		}
+		lines = append(lines, styles.DetailLabel.Render("Author: ")+
+			styles.DetailValue.Render(authorStr))
+	}
+
 	// Status
 	status := "Not installed"
 	if plugin.InstalledScope != claude.ScopeNone {
@@ -195,6 +205,41 @@ func (m *Model) renderDetails(styles Styles) string {
 		lines = append(lines, "")
 		lines = append(lines, styles.DetailLabel.Render("Description:"))
 		lines = append(lines, styles.DetailDescription.Render(plugin.Description))
+	}
+
+	// Components (what comes with this plugin)
+	if plugin.Components != nil {
+		hasComponents := len(plugin.Components.Skills) > 0 ||
+			len(plugin.Components.Agents) > 0 ||
+			len(plugin.Components.Commands) > 0 ||
+			len(plugin.Components.Hooks) > 0 ||
+			len(plugin.Components.MCPs) > 0
+
+		if hasComponents {
+			lines = append(lines, "")
+			lines = append(lines, styles.DetailLabel.Render("Includes:"))
+
+			if len(plugin.Components.Skills) > 0 {
+				lines = append(lines, styles.DetailValue.Render("  Skills: ")+
+					styles.DetailDescription.Render(strings.Join(plugin.Components.Skills, ", ")))
+			}
+			if len(plugin.Components.Agents) > 0 {
+				lines = append(lines, styles.DetailValue.Render("  Agents: ")+
+					styles.DetailDescription.Render(strings.Join(plugin.Components.Agents, ", ")))
+			}
+			if len(plugin.Components.Commands) > 0 {
+				lines = append(lines, styles.DetailValue.Render("  Commands: ")+
+					styles.DetailDescription.Render(strings.Join(plugin.Components.Commands, ", ")))
+			}
+			if len(plugin.Components.Hooks) > 0 {
+				lines = append(lines, styles.DetailValue.Render("  Hooks: ")+
+					styles.DetailDescription.Render(strings.Join(plugin.Components.Hooks, ", ")))
+			}
+			if len(plugin.Components.MCPs) > 0 {
+				lines = append(lines, styles.DetailValue.Render("  MCPs: ")+
+					styles.DetailDescription.Render(strings.Join(plugin.Components.MCPs, ", ")))
+			}
+		}
 	}
 
 	return strings.Join(lines, "\n")

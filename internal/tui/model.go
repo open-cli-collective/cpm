@@ -26,25 +26,45 @@ type PluginState struct {
 	ID             string
 	Name           string
 	Description    string
+	AuthorName     string
+	AuthorEmail    string
 	Marketplace    string
 	Version        string
 	InstalledScope claude.Scope
 	Enabled        bool
 	IsGroupHeader  bool // True for marketplace group headers (non-selectable)
+	InstallPath    string
+	Components     *claude.PluginComponents
 }
 
 // PluginStateFromInstalled creates a PluginState from an installed plugin.
+// It reads the plugin manifest for description and scans for components.
 func PluginStateFromInstalled(p claude.InstalledPlugin) PluginState {
 	// Parse name and marketplace from ID (format: name@marketplace)
 	name, marketplace := parsePluginID(p.ID)
-	return PluginState{
+
+	state := PluginState{
 		ID:             p.ID,
 		Name:           name,
 		Marketplace:    marketplace,
 		Version:        p.Version,
 		InstalledScope: p.Scope,
 		Enabled:        p.Enabled,
+		InstallPath:    p.InstallPath,
 	}
+
+	// Read manifest for description and author
+	if p.InstallPath != "" {
+		if manifest, err := claude.ReadPluginManifest(p.InstallPath); err == nil {
+			state.Description = manifest.Description
+			state.AuthorName = manifest.AuthorName
+			state.AuthorEmail = manifest.AuthorEmail
+		}
+		// Scan for components
+		state.Components = claude.ScanPluginComponents(p.InstallPath)
+	}
+
+	return state
 }
 
 // PluginStateFromAvailable creates a PluginState from an available plugin.
@@ -210,7 +230,17 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 			state.InstalledScope = installed.Scope
 			state.Enabled = installed.Enabled
 			state.Version = installed.Version
+			state.InstallPath = installed.InstallPath
 			seenInstalled[p.PluginID] = true
+
+			// Read manifest for author and scan for components
+			if installed.InstallPath != "" {
+				if manifest, err := claude.ReadPluginManifest(installed.InstallPath); err == nil {
+					state.AuthorName = manifest.AuthorName
+					state.AuthorEmail = manifest.AuthorEmail
+				}
+				state.Components = claude.ScanPluginComponents(installed.InstallPath)
+			}
 		}
 
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
