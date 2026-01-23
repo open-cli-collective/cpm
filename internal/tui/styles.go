@@ -42,6 +42,10 @@ type Styles struct {
 	DetailValue       lipgloss.Style
 	DetailDescription lipgloss.Style
 
+	// Component list styles
+	ComponentCategory lipgloss.Style
+	ComponentItem     lipgloss.Style
+
 	// Footer/help
 	Help lipgloss.Style
 }
@@ -111,6 +115,15 @@ func DefaultStyles() Styles {
 		DetailDescription: lipgloss.NewStyle().
 			Foreground(colorText).
 			MarginTop(1),
+
+		ComponentCategory: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorSecondary).
+			PaddingLeft(2),
+
+		ComponentItem: lipgloss.NewStyle().
+			Foreground(colorText).
+			PaddingLeft(4),
 
 		Help: lipgloss.NewStyle().
 			Foreground(colorMuted),

@@ -220,24 +220,34 @@ func (m *Model) renderDetails(styles Styles) string {
 			lines = append(lines, styles.DetailLabel.Render("Includes:"))
 
 			if len(plugin.Components.Skills) > 0 {
-				lines = append(lines, styles.DetailValue.Render("  Skills: ")+
-					styles.DetailDescription.Render(strings.Join(plugin.Components.Skills, ", ")))
+				lines = append(lines, styles.ComponentCategory.Render("Skills"))
+				for _, skill := range plugin.Components.Skills {
+					lines = append(lines, styles.ComponentItem.Render("• "+skill))
+				}
 			}
 			if len(plugin.Components.Agents) > 0 {
-				lines = append(lines, styles.DetailValue.Render("  Agents: ")+
-					styles.DetailDescription.Render(strings.Join(plugin.Components.Agents, ", ")))
+				lines = append(lines, styles.ComponentCategory.Render("Agents"))
+				for _, agent := range plugin.Components.Agents {
+					lines = append(lines, styles.ComponentItem.Render("• "+agent))
+				}
 			}
 			if len(plugin.Components.Commands) > 0 {
-				lines = append(lines, styles.DetailValue.Render("  Commands: ")+
-					styles.DetailDescription.Render(strings.Join(plugin.Components.Commands, ", ")))
+				lines = append(lines, styles.ComponentCategory.Render("Commands"))
+				for _, cmd := range plugin.Components.Commands {
+					lines = append(lines, styles.ComponentItem.Render("• "+cmd))
+				}
 			}
 			if len(plugin.Components.Hooks) > 0 {
-				lines = append(lines, styles.DetailValue.Render("  Hooks: ")+
-					styles.DetailDescription.Render(strings.Join(plugin.Components.Hooks, ", ")))
+				lines = append(lines, styles.ComponentCategory.Render("Hooks"))
+				for _, hook := range plugin.Components.Hooks {
+					lines = append(lines, styles.ComponentItem.Render("• "+hook))
+				}
 			}
 			if len(plugin.Components.MCPs) > 0 {
-				lines = append(lines, styles.DetailValue.Render("  MCPs: ")+
-					styles.DetailDescription.Render(strings.Join(plugin.Components.MCPs, ", ")))
+				lines = append(lines, styles.ComponentCategory.Render("MCPs"))
+				for _, mcp := range plugin.Components.MCPs {
+					lines = append(lines, styles.ComponentItem.Render("• "+mcp))
+				}
 			}
 		}
 	}
