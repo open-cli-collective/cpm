@@ -178,8 +178,9 @@ func isRelevantInstall(p claude.InstalledPlugin, workingDir string) bool {
 	if p.Scope == claude.ScopeUser {
 		return true // User-scoped plugins apply everywhere
 	}
-	// Project and local scoped plugins must match the working directory
-	return p.ProjectPath == workingDir
+	// Project and local scoped plugins must match the working directory.
+	// Use prefix matching to handle git worktrees (workingDir may be inside projectPath).
+	return strings.HasPrefix(workingDir, p.ProjectPath)
 }
 
 // mergePlugins combines installed and available plugins, grouped by marketplace.
@@ -221,8 +222,9 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 			continue
 		}
 		if seenInstalled[p.ID] {
-			continue // Already added via available list
+			continue // Already added (via available list or earlier in installed list)
 		}
+		seenInstalled[p.ID] = true // Mark as seen to prevent duplicates
 		state := PluginStateFromInstalled(p)
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
