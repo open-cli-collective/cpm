@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"slices"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -48,11 +50,5 @@ func DefaultKeyBindings() KeyBindings {
 
 // matchesKey returns true if the key message matches any of the given key names.
 func matchesKey(msg tea.KeyMsg, keys []string) bool {
-	keyStr := msg.String()
-	for _, k := range keys {
-		if keyStr == k {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(keys, msg.String())
 }
