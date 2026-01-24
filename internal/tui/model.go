@@ -9,6 +9,16 @@ import (
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
+// OperationType represents the type of operation to perform.
+type OperationType int
+
+const (
+	OpInstall OperationType = iota
+	OpUninstall
+	OpEnable
+	OpDisable
+)
+
 // Mode represents the current UI mode.
 type Mode int
 
@@ -184,8 +194,8 @@ type pluginsErrorMsg struct {
 type Operation struct {
 	PluginID      string
 	Scope         claude.Scope
-	OriginalScope claude.Scope // For uninstalls: the original scope to uninstall from
-	IsInstall     bool         // true for install, false for uninstall
+	OriginalScope claude.Scope  // For uninstalls: the original scope to uninstall from
+	Type          OperationType // Operation type: install, uninstall, enable, or disable
 }
 
 // operationDoneMsg is sent when an operation completes.
