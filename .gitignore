@@ -31,3 +31,6 @@ Thumbs.db
 
 # Build output
 dist/
+
+# Implementation plans
+docs/implementation-plans/
