@@ -421,6 +421,10 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
 			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+		case OpEnable:
+			err = m.client.EnablePlugin(op.PluginID, op.Scope)
+		case OpDisable:
+			err = m.client.DisablePlugin(op.PluginID, op.Scope)
 		default:
 			err = fmt.Errorf("unknown operation type: %d", op.Type)
 		}
