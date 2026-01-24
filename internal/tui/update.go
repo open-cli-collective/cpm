@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -400,11 +401,14 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 func (m *Model) executeOperation(op Operation) tea.Cmd {
 	return func() tea.Msg {
 		var err error
-		if op.IsInstall {
+		switch op.Type {
+		case OpInstall:
 			err = m.client.InstallPlugin(op.PluginID, op.Scope)
-		} else {
+		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
 			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+		default:
+			err = fmt.Errorf("unknown operation type: %d", op.Type)
 		}
 
 		return operationDoneMsg{op: op, err: err}
