@@ -130,13 +130,31 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	}
 
 	// Show current scope
+	var scopeText string
 	switch plugin.InstalledScope {
 	case claude.ScopeLocal:
-		return styles.ScopeLocal.Render("[LOCAL]")
+		scopeText = "LOCAL"
 	case claude.ScopeProject:
-		return styles.ScopeProject.Render("[PROJECT]")
+		scopeText = "PROJECT"
 	case claude.ScopeUser:
-		return styles.ScopeUser.Render("[USER]")
+		scopeText = "USER"
+	default:
+		return ""
+	}
+
+	// Append disabled status if applicable
+	if !plugin.Enabled {
+		scopeText += ", DISABLED"
+	}
+
+	// Apply style based on scope
+	switch plugin.InstalledScope {
+	case claude.ScopeLocal:
+		return styles.ScopeLocal.Render("[" + scopeText + "]")
+	case claude.ScopeProject:
+		return styles.ScopeProject.Render("[" + scopeText + "]")
+	case claude.ScopeUser:
+		return styles.ScopeUser.Render("[" + scopeText + "]")
 	default:
 		return ""
 	}
