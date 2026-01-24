@@ -223,17 +223,24 @@ func (m *Model) ensureVisible() {
 // selectForInstall marks the selected plugin for installation at the given scope.
 func (m *Model) selectForInstall(scope claude.Scope) {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
+	if plugin == nil {
 		return
 	}
 
-	// If already installed at this scope, remove the pending change
-	if plugin.InstalledScope == scope {
-		delete(m.pending, plugin.ID)
-		return
+	// If already pending for the same scope, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpInstall && existingOp.Scope == scope {
+			m.clearPending(plugin.ID)
+			return
+		}
 	}
 
-	m.pending[plugin.ID] = scope
+	// Create install operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID: plugin.ID,
+		Scope:    scope,
+		Type:     OpInstall,
+	}
 }
 
 // toggleScope cycles through: none -> local -> project -> uninstall -> none
