@@ -236,12 +236,21 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	if !ok {
 		return lines
 	}
+
 	var pendingStr string
-	if op.Type == OpUninstall {
-		pendingStr = "Will be uninstalled"
-	} else if op.Type == OpInstall {
+	switch op.Type {
+	case OpInstall:
 		pendingStr = "Will be installed to " + string(op.Scope)
+	case OpUninstall:
+		pendingStr = "Will be uninstalled"
+	case OpEnable:
+		pendingStr = "Will be enabled"
+	case OpDisable:
+		pendingStr = "Will be disabled"
+	default:
+		pendingStr = "Unknown operation"
 	}
+
 	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
 }
 
