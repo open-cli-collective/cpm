@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -364,40 +365,35 @@ func (m *Model) updateConfirmation(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // startExecution begins executing pending operations.
 func (m *Model) startExecution() (tea.Model, tea.Cmd) {
-	// Build operation list
+	// Build operation list from pendingOps
 	m.operations = nil
-	for pluginID, scope := range m.pending {
-		isInstall := scope != claude.ScopeNone
-		op := Operation{
-			PluginID:  pluginID,
-			Scope:     scope,
-			IsInstall: isInstall,
-		}
-
-		// For uninstalls, track the original scope
-		if !isInstall {
-			// Find the plugin to get its current installed scope
-			for _, p := range m.plugins {
-				if p.ID == pluginID && p.InstalledScope != claude.ScopeNone {
-					op.OriginalScope = p.InstalledScope
-					break
-				}
-			}
-		}
-
+	for _, op := range m.pendingOps {
 		m.operations = append(m.operations, op)
 	}
 
-	m.currentOpIdx = 0
-	m.operationErrors = make([]string, len(m.operations))
-	m.mode = ModeProgress
+	// Sort operations: uninstalls first, then installs
+	// (enable/disable will be added in Phase 5)
+	sort.Slice(m.operations, func(i, j int) bool {
+		// Uninstalls before installs
+		if m.operations[i].Type == OpUninstall && m.operations[j].Type == OpInstall {
+			return true
+		}
+		if m.operations[i].Type == OpInstall && m.operations[j].Type == OpUninstall {
+			return false
+		}
+		// Same type: maintain order
+		return false
+	})
 
-	// Start first operation
-	if len(m.operations) > 0 {
-		return m, m.executeOperation(m.operations[0])
+	m.currentOpIdx = 0
+	m.mode = ModeProgress
+	m.operationErrors = nil
+
+	if len(m.operations) == 0 {
+		return m, nil
 	}
 
-	return m, nil
+	return m, m.executeOperation(m.operations[0])
 }
 
 // executeOperation returns a command that executes a single operation.
