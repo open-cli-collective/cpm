@@ -1420,3 +1420,115 @@ func TestToggleEnablementNotInstalled(t *testing.T) {
 		t.Errorf("expected no pending operations, got %d", len(m.pendingOps))
 	}
 }
+
+// TestExecuteOperationEnable tests that executeOperation calls client.EnablePlugin for enable operations.
+func TestExecuteOperationEnable(t *testing.T) {
+	var calledPluginID string
+	var calledScope claude.Scope
+
+	client := &mockClient{
+		enableFn: func(pluginID string, scope claude.Scope) error {
+			calledPluginID = pluginID
+			calledScope = scope
+			return nil
+		},
+	}
+
+	m := &Model{
+		client: client,
+	}
+
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scope:    claude.ScopeLocal,
+		Type:     OpEnable,
+	}
+
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	if calledPluginID != "test@marketplace" {
+		t.Errorf("EnablePlugin called with pluginID = %q, want %q", calledPluginID, "test@marketplace")
+	}
+	if calledScope != claude.ScopeLocal {
+		t.Errorf("EnablePlugin called with scope = %v, want ScopeLocal", calledScope)
+	}
+
+	doneMsg, ok := msg.(operationDoneMsg)
+	if !ok {
+		t.Fatalf("expected operationDoneMsg, got %T", msg)
+	}
+	if doneMsg.err != nil {
+		t.Errorf("expected no error, got %v", doneMsg.err)
+	}
+}
+
+// TestExecuteOperationDisable tests that executeOperation calls client.DisablePlugin for disable operations.
+func TestExecuteOperationDisable(t *testing.T) {
+	var calledPluginID string
+	var calledScope claude.Scope
+
+	client := &mockClient{
+		disableFn: func(pluginID string, scope claude.Scope) error {
+			calledPluginID = pluginID
+			calledScope = scope
+			return nil
+		},
+	}
+
+	m := &Model{
+		client: client,
+	}
+
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scope:    claude.ScopeProject,
+		Type:     OpDisable,
+	}
+
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	if calledPluginID != "test@marketplace" {
+		t.Errorf("DisablePlugin called with pluginID = %q, want %q", calledPluginID, "test@marketplace")
+	}
+	if calledScope != claude.ScopeProject {
+		t.Errorf("DisablePlugin called with scope = %v, want ScopeProject", calledScope)
+	}
+
+	doneMsg, ok := msg.(operationDoneMsg)
+	if !ok {
+		t.Fatalf("expected operationDoneMsg, got %T", msg)
+	}
+	if doneMsg.err != nil {
+		t.Errorf("expected no error, got %v", doneMsg.err)
+	}
+}
+
+// TestOperationOrderingWithEnableDisable tests that operations are sorted correctly including enable/disable.
+func TestOperationOrderingWithEnableDisable(t *testing.T) {
+	m := &Model{
+		pendingOps: map[string]Operation{
+			"p1@m": {PluginID: "p1@m", Scope: claude.ScopeProject, Type: OpDisable},
+			"p2@m": {PluginID: "p2@m", Scope: claude.ScopeLocal, Type: OpInstall},
+			"p3@m": {PluginID: "p3@m", Scope: claude.ScopeLocal, Type: OpEnable},
+			"p4@m": {PluginID: "p4@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeUser},
+		},
+		client: &mockClient{},
+	}
+
+	result, _ := m.startExecution()
+	m = result.(*Model)
+
+	// Verify operations are sorted: Uninstall, Install, Enable, Disable
+	if len(m.operations) != 4 {
+		t.Fatalf("expected 4 operations, got %d", len(m.operations))
+	}
+
+	expectedOrder := []OperationType{OpUninstall, OpInstall, OpEnable, OpDisable}
+	for i, expectedType := range expectedOrder {
+		if m.operations[i].Type != expectedType {
+			t.Errorf("operations[%d].Type = %v, want %v", i, m.operations[i].Type, expectedType)
+		}
+	}
+}
