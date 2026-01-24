@@ -309,6 +309,51 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 	return result
 }
 
+// toggleEnablement toggles the enabled/disabled state of the selected plugin.
+// Only works for installed plugins. Blocked if plugin has pending install/uninstall.
+func (m *Model) toggleEnablement() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil {
+		return
+	}
+
+	// Can only enable/disable installed plugins
+	if plugin.InstalledScope == claude.ScopeNone {
+		return
+	}
+
+	// Block if plugin has pending install/uninstall operation
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpInstall || existingOp.Type == OpUninstall {
+			// Don't allow enable/disable when install/uninstall is pending
+			return
+		}
+	}
+
+	// Determine operation type based on current enabled state
+	var opType OperationType
+	if plugin.Enabled {
+		opType = OpDisable
+	} else {
+		opType = OpEnable
+	}
+
+	// If already pending the same operation, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == opType {
+			m.clearPending(plugin.ID)
+			return
+		}
+	}
+
+	// Create enable/disable operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID: plugin.ID,
+		Scope:    plugin.InstalledScope, // Use current installed scope
+		Type:     opType,
+	}
+}
+
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

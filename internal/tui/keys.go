@@ -20,7 +20,7 @@ type KeyBindings struct {
 	Project   []string
 	Toggle    []string
 	Uninstall []string
-	Enable    []string  // Toggle plugin enabled/disabled state
+	Enable    []string // Toggle plugin enabled/disabled state
 	Escape    []string
 	Filter    []string
 	Refresh   []string
