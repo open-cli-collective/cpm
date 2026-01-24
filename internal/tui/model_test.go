@@ -1282,3 +1282,99 @@ func TestMockClientDisablePluginDefaultBehavior(t *testing.T) {
 		t.Errorf("DisablePlugin should return nil when no error configured: %v", err)
 	}
 }
+
+// --- Enable/Disable Toggle Tests ---
+
+// TestToggleEnablement tests basic toggle behavior.
+func TestToggleEnablement(t *testing.T) {
+	// Setup: plugin installed and enabled at ScopeLocal
+	m := &Model{
+		plugins: []PluginState{
+			{
+				ID:             "test@marketplace",
+				InstalledScope: claude.ScopeLocal,
+				Enabled:        true,
+			},
+		},
+		selectedIdx: 0,
+		pendingOps:  make(map[string]Operation),
+	}
+
+	// First press: should add OpDisable (plugin is currently enabled)
+	m.toggleEnablement()
+
+	op, ok := m.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation, got none")
+	}
+	if op.Type != OpDisable {
+		t.Errorf("Type = %v, want OpDisable", op.Type)
+	}
+	if op.Scope != claude.ScopeLocal {
+		t.Errorf("Scope = %v, want ScopeLocal", op.Scope)
+	}
+
+	// Second press: should remove pending operation (toggle off)
+	m.toggleEnablement()
+
+	if _, ok := m.pendingOps["test@marketplace"]; ok {
+		t.Error("expected no pending operation after second toggle")
+	}
+}
+
+// TestToggleEnablementBlockedByPendingInstall tests mutual exclusion.
+func TestToggleEnablementBlockedByPendingInstall(t *testing.T) {
+	m := &Model{
+		plugins: []PluginState{
+			{
+				ID:             "test@marketplace",
+				InstalledScope: claude.ScopeLocal,
+				Enabled:        true,
+			},
+		},
+		selectedIdx: 0,
+		pendingOps:  make(map[string]Operation),
+	}
+
+	// Add pending install operation
+	m.pendingOps["test@marketplace"] = Operation{
+		PluginID: "test@marketplace",
+		Scope:    claude.ScopeProject,
+		Type:     OpInstall,
+	}
+
+	// Try to toggle enablement - should be blocked
+	m.toggleEnablement()
+
+	// Verify pending operation is still install (not changed to enable/disable)
+	op, ok := m.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall (should not have changed)", op.Type)
+	}
+}
+
+// TestToggleEnablementNotInstalled tests blocking for uninstalled plugins.
+func TestToggleEnablementNotInstalled(t *testing.T) {
+	m := &Model{
+		plugins: []PluginState{
+			{
+				ID:             "test@marketplace",
+				InstalledScope: claude.ScopeNone, // Not installed
+				Enabled:        false,
+			},
+		},
+		selectedIdx: 0,
+		pendingOps:  make(map[string]Operation),
+	}
+
+	// Try to toggle enablement - should be blocked (not installed)
+	m.toggleEnablement()
+
+	// Verify no pending operation was added
+	if len(m.pendingOps) != 0 {
+		t.Errorf("expected no pending operations, got %d", len(m.pendingOps))
+	}
+}
