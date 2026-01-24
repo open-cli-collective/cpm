@@ -78,7 +78,8 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		matchesKey(msg, keys.Home), matchesKey(msg, keys.End):
 		m.handleNavigationKeys(msg, keys)
 	case matchesKey(msg, keys.Local), matchesKey(msg, keys.Project),
-		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall):
+		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall),
+		matchesKey(msg, keys.Enable):
 		m.handleOperationKeys(msg, keys)
 	case matchesKey(msg, keys.Enter):
 		if len(m.pendingOps) > 0 {
@@ -121,6 +122,8 @@ func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
 		m.toggleScope()
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
+	case matchesKey(msg, keys.Enable):
+		m.toggleEnablement()
 	}
 }
 
