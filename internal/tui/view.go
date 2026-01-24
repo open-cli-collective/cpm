@@ -116,11 +116,15 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
 	if op, ok := m.pendingOps[plugin.ID]; ok {
-		if op.Type == OpUninstall {
-			return styles.Pending.Render("[→ UNINSTALL]")
-		}
-		if op.Type == OpInstall {
+		switch op.Type {
+		case OpInstall:
 			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+		case OpUninstall:
+			return styles.Pending.Render("[→ UNINSTALL]")
+		case OpEnable:
+			return styles.Pending.Render("[→ ENABLED]")
+		case OpDisable:
+			return styles.Pending.Render("[→ DISABLED]")
 		}
 	}
 
