@@ -115,11 +115,13 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 // getScopeIndicator returns the scope indicator for a plugin.
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
-	if pending, ok := m.pending[plugin.ID]; ok {
-		if pending == claude.ScopeNone {
+	if op, ok := m.pendingOps[plugin.ID]; ok {
+		if op.Type == OpUninstall {
 			return styles.Pending.Render("[→ UNINSTALL]")
 		}
-		return styles.Pending.Render("[→ " + strings.ToUpper(string(pending)) + "]")
+		if op.Type == OpInstall {
+			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+		}
 	}
 
 	// Show current scope
@@ -226,15 +228,15 @@ func (m *Model) getStatusText(plugin PluginState) string {
 
 // appendPendingChange appends pending change information if applicable.
 func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles Styles) []string {
-	pending, ok := m.pending[plugin.ID]
+	op, ok := m.pendingOps[plugin.ID]
 	if !ok {
 		return lines
 	}
 	var pendingStr string
-	if pending == claude.ScopeNone {
+	if op.Type == OpUninstall {
 		pendingStr = "Will be uninstalled"
-	} else {
-		pendingStr = "Will be installed to " + string(pending)
+	} else if op.Type == OpInstall {
+		pendingStr = "Will be installed to " + string(op.Scope)
 	}
 	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
 }
@@ -307,7 +309,7 @@ func (m *Model) renderHelp(styles Styles) string {
 		mouseIndicator = "m: mouse on"
 	}
 
-	if len(m.pending) > 0 {
+	if len(m.pendingOps) > 0 {
 		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 	}
 	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
@@ -315,7 +317,7 @@ func (m *Model) renderHelp(styles Styles) string {
 
 // renderConfirmation renders the confirmation modal.
 func (m *Model) renderConfirmation(styles Styles) string {
-	if len(m.pending) == 0 {
+	if len(m.pendingOps) == 0 {
 		return ""
 	}
 
@@ -326,13 +328,13 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	// List pending operations
 	installs := 0
 	uninstalls := 0
-	for pluginID, scope := range m.pending {
+	for _, op := range m.pendingOps {
 		var action string
-		if scope == claude.ScopeNone {
-			action = styles.Pending.Render("Uninstall: ") + pluginID
+		if op.Type == OpUninstall {
+			action = styles.Pending.Render("Uninstall: ") + op.PluginID
 			uninstalls++
-		} else {
-			action = styles.ScopeProject.Render("Install ("+string(scope)+"): ") + pluginID
+		} else if op.Type == OpInstall {
+			action = styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
 			installs++
 		}
 		lines = append(lines, "  "+action)
@@ -390,13 +392,19 @@ func (m *Model) renderProgress(styles Styles) string {
 			status = "○ Pending"
 		}
 
-		action := "Install"
-		if !op.IsInstall {
-			action = "Uninstall"
-		}
-		scopeStr := ""
-		if op.IsInstall {
+		var action string
+		var scopeStr string
+
+		switch op.Type {
+		case OpInstall:
+			action = "Install"
 			scopeStr = " (" + string(op.Scope) + ")"
+		case OpUninstall:
+			action = "Uninstall"
+			scopeStr = "" // No scope display for uninstalls
+		default:
+			action = "Unknown"
+			scopeStr = ""
 		}
 
 		line := status + " " + action + scopeStr + ": " + op.PluginID
@@ -508,7 +516,7 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 	var lines []string
 	lines = append(lines, styles.Header.Render(" Quit Without Applying? "))
 	lines = append(lines, "")
-	lines = append(lines, "You have "+strconv.Itoa(len(m.pending))+" pending change(s).")
+	lines = append(lines, "You have "+strconv.Itoa(len(m.pendingOps))+" pending change(s).")
 	lines = append(lines, "")
 	lines = append(lines, styles.Help.Render("Press q again to quit, Esc to cancel"))
 

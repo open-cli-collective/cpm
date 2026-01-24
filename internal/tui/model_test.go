@@ -124,8 +124,9 @@ func TestSelectForInstallLocal(t *testing.T) {
 
 	m.selectForInstall(claude.ScopeLocal)
 
-	if scope, ok := m.pending["test@marketplace"]; !ok || scope != claude.ScopeLocal {
-		t.Errorf("pending = %v, want local scope", m.pending)
+	op, ok := m.pendingOps["test@marketplace"]
+	if !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+		t.Errorf("pendingOps[test@marketplace] = %v, want OpInstall with local scope", op)
 	}
 }
 
@@ -139,8 +140,9 @@ func TestSelectForInstallProject(t *testing.T) {
 
 	m.selectForInstall(claude.ScopeProject)
 
-	if scope, ok := m.pending["test@marketplace"]; !ok || scope != claude.ScopeProject {
-		t.Errorf("pending = %v, want project scope", m.pending)
+	op, ok := m.pendingOps["test@marketplace"]
+	if !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
+		t.Errorf("pendingOps[test@marketplace] = %v, want OpInstall with project scope", op)
 	}
 }
 
@@ -151,13 +153,13 @@ func TestSelectForInstallClearsIfSameScope(t *testing.T) {
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
 	}
 	m.selectedIdx = 0
-	m.pending["test@marketplace"] = claude.ScopeProject
+	m.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeProject, Type: OpInstall}
 
-	// Selecting local should clear pending since it's the same as installed
+	// Selecting local should replace pending (not clear it, since project != local)
 	m.selectForInstall(claude.ScopeLocal)
 
-	if _, ok := m.pending["test@marketplace"]; ok {
-		t.Error("pending should be cleared when selecting same scope as installed")
+	if op, ok := m.pendingOps["test@marketplace"]; !ok || op.Scope != claude.ScopeLocal {
+		t.Error("pendingOps should be updated to local scope")
 	}
 }
 
@@ -171,8 +173,9 @@ func TestSelectForUninstall(t *testing.T) {
 
 	m.selectForUninstall()
 
-	if scope, ok := m.pending["test@marketplace"]; !ok || scope != claude.ScopeNone {
-		t.Errorf("pending = %v, want ScopeNone for uninstall", m.pending)
+	op, ok := m.pendingOps["test@marketplace"]
+	if !ok || op.Type != OpUninstall {
+		t.Errorf("pendingOps[test@marketplace] = %v, want OpUninstall", op)
 	}
 }
 
@@ -186,13 +189,13 @@ func TestSelectForUninstallToggle(t *testing.T) {
 
 	// First uninstall
 	m.selectForUninstall()
-	if _, ok := m.pending["test@marketplace"]; !ok {
+	if _, ok := m.pendingOps["test@marketplace"]; !ok {
 		t.Error("first uninstall should mark pending")
 	}
 
 	// Toggle back
 	m.selectForUninstall()
-	if _, ok := m.pending["test@marketplace"]; ok {
+	if _, ok := m.pendingOps["test@marketplace"]; ok {
 		t.Error("second uninstall should clear pending")
 	}
 }
@@ -204,11 +207,11 @@ func TestClearPending(t *testing.T) {
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
 	m.selectedIdx = 0
-	m.pending["test@marketplace"] = claude.ScopeLocal
+	m.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
 
-	m.clearPending()
+	m.clearPending("test@marketplace")
 
-	if _, ok := m.pending["test@marketplace"]; ok {
+	if _, ok := m.pendingOps["test@marketplace"]; ok {
 		t.Error("clearPending should remove pending change")
 	}
 }
@@ -223,19 +226,19 @@ func TestToggleScopeCycle(t *testing.T) {
 
 	// None -> Local
 	m.toggleScope()
-	if scope := m.pending["test@marketplace"]; scope != claude.ScopeLocal {
-		t.Errorf("after first toggle = %v, want local", scope)
+	if op, ok := m.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
 	// Local -> Project
 	m.toggleScope()
-	if scope := m.pending["test@marketplace"]; scope != claude.ScopeProject {
-		t.Errorf("after second toggle = %v, want project", scope)
+	if op, ok := m.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
+		t.Errorf("after second toggle = %v, want OpInstall with project", op)
 	}
 
 	// Project -> None (not installed, clears pending)
 	m.toggleScope()
-	if _, ok := m.pending["test@marketplace"]; ok {
+	if _, ok := m.pendingOps["test@marketplace"]; ok {
 		t.Error("after third toggle, pending should be cleared")
 	}
 }
@@ -248,16 +251,16 @@ func TestToggleScopeInstalledPlugin(t *testing.T) {
 	}
 	m.selectedIdx = 0
 
-	// Local installed -> Project pending
+	// Local installed -> Local pending (starts with Local, then cycles)
 	m.toggleScope()
-	if scope := m.pending["test@marketplace"]; scope != claude.ScopeProject {
-		t.Errorf("after first toggle = %v, want project", scope)
+	if op, ok := m.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
-	// Project pending -> Uninstall pending
+	// Local pending -> Project pending
 	m.toggleScope()
-	if scope := m.pending["test@marketplace"]; scope != claude.ScopeNone {
-		t.Errorf("after second toggle = %v, want ScopeNone (uninstall)", scope)
+	if op, ok := m.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
+		t.Errorf("after second toggle = %v, want OpInstall with project", op)
 	}
 }
 
@@ -274,7 +277,7 @@ func TestSkipsGroupHeaders(t *testing.T) {
 	m.selectForUninstall()
 	m.toggleScope()
 
-	if len(m.pending) != 0 {
+	if len(m.pendingOps) != 0 {
 		t.Error("operations on group headers should not modify pending")
 	}
 }
@@ -287,7 +290,7 @@ func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
 		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
 	}
 	m.selectedIdx = 0
-	m.pending["test@marketplace"] = claude.ScopeLocal
+	m.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
 	m.showConfirm = true
 
 	// Send Enter key
@@ -311,7 +314,7 @@ func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
 func TestUpdateConfirmationEscapeCancel(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
-	m.pending["test@marketplace"] = claude.ScopeLocal
+	m.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
 	m.showConfirm = true
 
 	// Send Escape key
@@ -327,7 +330,7 @@ func TestUpdateConfirmationEscapeCancel(t *testing.T) {
 		t.Errorf("mode = %d, want ModeMain", m.mode)
 	}
 	// Pending changes should remain
-	if _, ok := m.pending["test@marketplace"]; !ok {
+	if _, ok := m.pendingOps["test@marketplace"]; !ok {
 		t.Error("pending changes should not be cleared on cancel")
 	}
 }
@@ -343,8 +346,8 @@ func TestStartExecutionBuildsOperations(t *testing.T) {
 	m.selectedIdx = 0
 
 	// Set pending: uninstall plugin1 (local), install plugin2 (project)
-	m.pending["plugin1@market"] = claude.ScopeNone    // uninstall
-	m.pending["plugin2@market"] = claude.ScopeProject // install
+	m.pendingOps["plugin1@market"] = Operation{PluginID: "plugin1@market", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
+	m.pendingOps["plugin2@market"] = Operation{PluginID: "plugin2@market", Scope: claude.ScopeProject, Type: OpInstall}
 
 	result, _ := m.startExecution()
 	m = result.(*Model)
@@ -362,7 +365,7 @@ func TestStartExecutionBuildsOperations(t *testing.T) {
 	// Check that uninstall captured original scope
 	found := false
 	for _, op := range m.operations {
-		if op.PluginID == "plugin1@market" && !op.IsInstall {
+		if op.PluginID == "plugin1@market" && op.Type == OpUninstall {
 			if op.OriginalScope != claude.ScopeLocal {
 				t.Errorf("uninstall OriginalScope = %v, want ScopeLocal", op.OriginalScope)
 			}
@@ -393,9 +396,9 @@ func TestExecuteOperationInstall(t *testing.T) {
 
 	m := NewModel(client, "/test/project")
 	op := Operation{
-		PluginID:  "test@marketplace",
-		Scope:     claude.ScopeLocal,
-		IsInstall: true,
+		PluginID: "test@marketplace",
+		Scope:    claude.ScopeLocal,
+		Type:     OpInstall,
 	}
 
 	cmd := m.executeOperation(op)
@@ -439,7 +442,7 @@ func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
 	op := Operation{
 		PluginID:      "test@marketplace",
 		Scope:         claude.ScopeNone, // marked for uninstall
-		IsInstall:     false,
+		Type:          OpUninstall,
 		OriginalScope: claude.ScopeProject, // was installed at project scope
 	}
 
@@ -473,8 +476,8 @@ func TestUpdateProgressChainedOperations(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, IsInstall: true},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
 	}
 	m.currentOpIdx = 0
 	m.operationErrors = make([]string, 2)
@@ -501,7 +504,7 @@ func TestUpdateProgressCompletesAndShowsSummary(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
 	}
 	m.currentOpIdx = 0
 	m.operationErrors = make([]string, 1)
@@ -514,7 +517,7 @@ func TestUpdateProgressCompletesAndShowsSummary(t *testing.T) {
 	if m.mode != ModeSummary {
 		t.Errorf("mode = %d, want ModeSummary", m.mode)
 	}
-	if len(m.pending) != 0 {
+	if len(m.pendingOps) != 0 {
 		t.Error("pending should be cleared after completion")
 	}
 	if cmd == nil {
@@ -528,8 +531,8 @@ func TestUpdateProgressRecordsErrors(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, IsInstall: true},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
 	}
 	m.currentOpIdx = 0
 	m.operationErrors = make([]string, 2)
@@ -549,7 +552,7 @@ func TestUpdateErrorReturnsToMain(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.mode = ModeSummary
-	m.operations = []Operation{{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true}}
+	m.operations = []Operation{{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall}}
 	m.operationErrors = []string{""}
 
 	// Send Enter key
@@ -598,8 +601,8 @@ func TestRenderConfirmationOutput(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
-	m.pending["p1@market"] = claude.ScopeLocal
-	m.pending["p2@market"] = claude.ScopeNone
+	m.pendingOps["p1@market"] = Operation{PluginID: "p1@market", Scope: claude.ScopeLocal, Type: OpInstall}
+	m.pendingOps["p2@market"] = Operation{PluginID: "p2@market", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
 
 	output := m.renderConfirmation(m.styles)
 
@@ -628,8 +631,8 @@ func TestRenderProgressOutput(t *testing.T) {
 	m.height = 30
 	m.mode = ModeProgress
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
-		{PluginID: "p2@m", Scope: claude.ScopeNone, IsInstall: false, OriginalScope: claude.ScopeProject},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeProject},
 	}
 	m.currentOpIdx = 0
 	m.operationErrors = []string{"", ""}
@@ -658,8 +661,8 @@ func TestRenderErrorSummaryAllSuccess(t *testing.T) {
 	m.height = 30
 	m.mode = ModeSummary
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, IsInstall: true},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
 	}
 	m.operationErrors = []string{"", ""}
 
@@ -684,8 +687,8 @@ func TestRenderErrorSummaryWithErrors(t *testing.T) {
 	m.height = 30
 	m.mode = ModeSummary
 	m.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, IsInstall: true},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, IsInstall: true},
+		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
 	}
 	m.operationErrors = []string{"", "install failed"}
 
@@ -1018,7 +1021,7 @@ func TestHandleRefreshKey(t *testing.T) {
 func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
-	m.pending["test@m"] = claude.ScopeLocal
+	m.pendingOps["test@m"] = Operation{PluginID: "test@m", Scope: claude.ScopeLocal, Type: OpInstall}
 	m.showQuitConfirm = false
 
 	result, cmd := m.handleQuitKey()
@@ -1036,7 +1039,7 @@ func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
 func TestHandleQuitKeyQuitsWhenNoPending(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
-	m.pending = make(map[string]claude.Scope)
+	m.pendingOps = make(map[string]Operation)
 
 	_, cmd := m.handleQuitKey()
 
@@ -1054,8 +1057,8 @@ func TestRenderQuitConfirmation(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
-	m.pending["plugin1@m"] = claude.ScopeLocal
-	m.pending["plugin2@m"] = claude.ScopeNone
+	m.pendingOps["plugin1@m"] = Operation{PluginID: "plugin1@m", Scope: claude.ScopeLocal, Type: OpInstall}
+	m.pendingOps["plugin2@m"] = Operation{PluginID: "plugin2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
 
 	output := m.renderQuitConfirmation(m.styles)
 

@@ -94,7 +94,7 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
 	case matchesKey(msg, keys.Enter):
-		if len(m.pending) > 0 {
+		if len(m.pendingOps) > 0 {
 			m.showConfirm = true
 		}
 	case matchesKey(msg, keys.Escape):
@@ -107,7 +107,7 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 
 // handleQuitKey handles the quit key, showing confirmation if there are pending changes.
 func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
-	if len(m.pending) > 0 && !m.showQuitConfirm {
+	if len(m.pendingOps) > 0 && !m.showQuitConfirm {
 		m.showQuitConfirm = true
 		return m, nil
 	}
@@ -225,7 +225,7 @@ func (m *Model) ensureVisible() {
 // selectForInstall marks the selected plugin for installation at the given scope.
 func (m *Model) selectForInstall(scope claude.Scope) {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil {
+	if plugin == nil || plugin.IsGroupHeader {
 		return
 	}
 
@@ -248,7 +248,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 // toggleScope cycles through: none -> local -> project -> uninstall -> none
 func (m *Model) toggleScope() {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil {
+	if plugin == nil || plugin.IsGroupHeader {
 		return
 	}
 
@@ -306,8 +306,8 @@ func (m *Model) toggleScope() {
 // selectForUninstall marks the selected plugin for uninstallation.
 func (m *Model) selectForUninstall() {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.InstalledScope == claude.ScopeNone {
-		return // Can't uninstall if not installed
+	if plugin == nil || plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
+		return // Can't uninstall if not installed or if group header
 	}
 
 	// If already pending uninstall, clear it (toggle off)
@@ -338,14 +338,6 @@ func (m *Model) getSelectedPlugin() *PluginState {
 		return nil
 	}
 	return &m.plugins[m.selectedIdx]
-}
-
-// getCurrentDesiredScope returns the effective scope (pending or installed).
-func (m *Model) getCurrentDesiredScope(plugin *PluginState) claude.Scope {
-	if pending, ok := m.pending[plugin.ID]; ok {
-		return pending
-	}
-	return plugin.InstalledScope
 }
 
 // updateConfirmation handles messages in confirmation mode.
@@ -432,7 +424,7 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// All done - refresh and show summary
 		m.mode = ModeSummary
-		m.pending = make(map[string]claude.Scope)
+		m.pendingOps = make(map[string]Operation)
 		return m, m.loadPlugins
 	}
 	return m, nil
