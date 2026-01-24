@@ -1532,3 +1532,61 @@ func TestOperationOrderingWithEnableDisable(t *testing.T) {
 		}
 	}
 }
+
+// TestToggleEnablementUsesInstalledScope tests that enable/disable operations use the plugin's installed scope.
+func TestToggleEnablementUsesInstalledScope(t *testing.T) {
+	tests := []struct {
+		name           string
+		installedScope claude.Scope
+		enabled        bool
+		wantType       OperationType
+	}{
+		{
+			name:           "enabled plugin at ScopeLocal",
+			installedScope: claude.ScopeLocal,
+			enabled:        true,
+			wantType:       OpDisable,
+		},
+		{
+			name:           "disabled plugin at ScopeProject",
+			installedScope: claude.ScopeProject,
+			enabled:        false,
+			wantType:       OpEnable,
+		},
+		{
+			name:           "enabled plugin at ScopeUser",
+			installedScope: claude.ScopeUser,
+			enabled:        true,
+			wantType:       OpDisable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				plugins: []PluginState{
+					{
+						ID:             "test@marketplace",
+						InstalledScope: tt.installedScope,
+						Enabled:        tt.enabled,
+					},
+				},
+				selectedIdx: 0,
+				pendingOps:  make(map[string]Operation),
+			}
+
+			m.toggleEnablement()
+
+			op, ok := m.pendingOps["test@marketplace"]
+			if !ok {
+				t.Fatal("expected pending operation")
+			}
+			if op.Type != tt.wantType {
+				t.Errorf("Type = %v, want %v", op.Type, tt.wantType)
+			}
+			if op.Scope != tt.installedScope {
+				t.Errorf("Scope = %v, want %v", op.Scope, tt.installedScope)
+			}
+		})
+	}
+}
