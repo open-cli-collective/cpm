@@ -17,6 +17,12 @@ type Client interface {
 
 	// UninstallPlugin removes a plugin from the specified scope.
 	UninstallPlugin(pluginID string, scope Scope) error
+
+	// EnablePlugin enables a plugin at the specified scope.
+	EnablePlugin(pluginID string, scope Scope) error
+
+	// DisablePlugin disables a plugin at the specified scope.
+	DisablePlugin(pluginID string, scope Scope) error
 }
 
 // realClient implements Client by shelling out to the claude CLI.
@@ -92,6 +98,46 @@ func (c *realClient) UninstallPlugin(pluginID string, scope Scope) error {
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("claude plugin uninstall failed: %w: %s", err, stderr.String())
+	}
+
+	return nil
+}
+
+// EnablePlugin implements Client.EnablePlugin.
+func (c *realClient) EnablePlugin(pluginID string, scope Scope) error {
+	args := []string{"plugin", "enable"}
+	if scope != ScopeNone {
+		args = append(args, "--scope", string(scope))
+	}
+	args = append(args, pluginID)
+
+	// #nosec G204 -- args are constructed safely from enum scope
+	cmd := exec.Command(c.claudePath, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("claude plugin enable failed: %w: %s", err, stderr.String())
+	}
+
+	return nil
+}
+
+// DisablePlugin implements Client.DisablePlugin.
+func (c *realClient) DisablePlugin(pluginID string, scope Scope) error {
+	args := []string{"plugin", "disable"}
+	if scope != ScopeNone {
+		args = append(args, "--scope", string(scope))
+	}
+	args = append(args, pluginID)
+
+	// #nosec G204 -- args are constructed safely from enum scope
+	cmd := exec.Command(c.claudePath, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("claude plugin disable failed: %w: %s", err, stderr.String())
 	}
 
 	return nil
