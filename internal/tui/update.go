@@ -96,7 +96,10 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 			m.showConfirm = true
 		}
 	case matchesKey(msg, keys.Escape):
-		m.clearPending()
+		plugin := m.getSelectedPlugin()
+		if plugin != nil {
+			m.clearPending(plugin.ID)
+		}
 	}
 }
 
@@ -295,12 +298,8 @@ func (m *Model) selectForUninstall() {
 }
 
 // clearPending clears the pending change for the selected plugin.
-func (m *Model) clearPending() {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil {
-		return
-	}
-	delete(m.pending, plugin.ID)
+func (m *Model) clearPending(pluginID string) {
+	delete(m.pendingOps, pluginID)
 }
 
 // getSelectedPlugin returns the currently selected plugin, or nil if none.
