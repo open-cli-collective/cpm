@@ -246,38 +246,59 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 // toggleScope cycles through: none -> local -> project -> uninstall -> none
 func (m *Model) toggleScope() {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
+	if plugin == nil {
 		return
 	}
 
-	current := m.getCurrentDesiredScope(plugin)
+	// Determine next scope in cycle: None → Local → Project → Uninstall → None
+	var nextOp Operation
 
-	var next claude.Scope
-	switch current {
-	case claude.ScopeNone:
-		// Not installed and no pending -> install local
-		next = claude.ScopeLocal
-	case claude.ScopeLocal:
-		// Local (or pending local) -> project
-		next = claude.ScopeProject
-	case claude.ScopeProject:
-		// Project (or pending project) -> uninstall (if installed) or none
-		if plugin.InstalledScope != claude.ScopeNone {
-			// Mark for uninstall
-			m.pending[plugin.ID] = claude.ScopeNone
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		// Already has pending operation, cycle to next state
+		switch {
+		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeLocal:
+			// Local → Project
+			nextOp = Operation{
+				PluginID: plugin.ID,
+				Scope:    claude.ScopeProject,
+				Type:     OpInstall,
+			}
+		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeProject:
+			// Project → Uninstall (if installed)
+			if plugin.InstalledScope != claude.ScopeNone {
+				nextOp = Operation{
+					PluginID:      plugin.ID,
+					Scope:         claude.ScopeNone,
+					OriginalScope: plugin.InstalledScope,
+					Type:          OpUninstall,
+				}
+			} else {
+				// Not installed, go back to None
+				m.clearPending(plugin.ID)
+				return
+			}
+		case existingOp.Type == OpUninstall:
+			// Uninstall → None (clear)
+			m.clearPending(plugin.ID)
 			return
+		default:
+			// Default to Local
+			nextOp = Operation{
+				PluginID: plugin.ID,
+				Scope:    claude.ScopeLocal,
+				Type:     OpInstall,
+			}
 		}
-		// Not installed, just clear pending
-		delete(m.pending, plugin.ID)
-		return
+	} else {
+		// No pending operation, start with Local
+		nextOp = Operation{
+			PluginID: plugin.ID,
+			Scope:    claude.ScopeLocal,
+			Type:     OpInstall,
+		}
 	}
 
-	// If cycling back to original state, clear pending
-	if next == plugin.InstalledScope {
-		delete(m.pending, plugin.ID)
-	} else {
-		m.pending[plugin.ID] = next
-	}
+	m.pendingOps[plugin.ID] = nextOp
 }
 
 // selectForUninstall marks the selected plugin for uninstallation.
