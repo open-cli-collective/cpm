@@ -623,6 +623,48 @@ func TestRenderConfirmationOutput(t *testing.T) {
 	}
 }
 
+// TestRenderConfirmationWithEnableDisable tests that renderConfirmation displays enable and disable operations.
+func TestRenderConfirmationWithEnableDisable(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.width = 100
+	m.height = 30
+	m.pendingOps["p1@m"] = Operation{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall}
+	m.pendingOps["p2@m"] = Operation{PluginID: "p2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
+	m.pendingOps["p3@m"] = Operation{PluginID: "p3@m", Scope: claude.ScopeProject, Type: OpEnable}
+	m.pendingOps["p4@m"] = Operation{PluginID: "p4@m", Scope: claude.ScopeLocal, Type: OpDisable}
+
+	output := m.renderConfirmation(m.styles)
+
+	// Check for operation type labels
+	if !strings.Contains(output, "Install") {
+		t.Error("output should contain 'Install'")
+	}
+	if !strings.Contains(output, "Uninstall") {
+		t.Error("output should contain 'Uninstall'")
+	}
+	if !strings.Contains(output, "Enable") {
+		t.Error("output should contain 'Enable'")
+	}
+	if !strings.Contains(output, "Disable") {
+		t.Error("output should contain 'Disable'")
+	}
+
+	// Check for summary counts
+	if !strings.Contains(output, "1 install(s)") {
+		t.Error("output should contain '1 install(s)'")
+	}
+	if !strings.Contains(output, "1 uninstall(s)") {
+		t.Error("output should contain '1 uninstall(s)'")
+	}
+	if !strings.Contains(output, "1 enable(s)") {
+		t.Error("output should contain '1 enable(s)'")
+	}
+	if !strings.Contains(output, "1 disable(s)") {
+		t.Error("output should contain '1 disable(s)'")
+	}
+}
+
 // TestRenderProgressOutput tests that renderProgress shows operation status.
 func TestRenderProgressOutput(t *testing.T) {
 	client := &mockClient{}
