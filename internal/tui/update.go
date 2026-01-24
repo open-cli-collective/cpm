@@ -283,24 +283,24 @@ func (m *Model) toggleScope() {
 // selectForUninstall marks the selected plugin for uninstallation.
 func (m *Model) selectForUninstall() {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
-		return
+	if plugin == nil || plugin.InstalledScope == claude.ScopeNone {
+		return // Can't uninstall if not installed
 	}
 
-	// Can only uninstall if currently installed
-	if plugin.InstalledScope == claude.ScopeNone {
-		// If pending install, clear it
-		delete(m.pending, plugin.ID)
-		return
+	// If already pending uninstall, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpUninstall {
+			m.clearPending(plugin.ID)
+			return
+		}
 	}
 
-	// Toggle uninstall
-	if pending, ok := m.pending[plugin.ID]; ok && pending == claude.ScopeNone {
-		// Already marked for uninstall, clear it
-		delete(m.pending, plugin.ID)
-	} else {
-		// Mark for uninstall
-		m.pending[plugin.ID] = claude.ScopeNone
+	// Create uninstall operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID:      plugin.ID,
+		Scope:         claude.ScopeNone,
+		OriginalScope: plugin.InstalledScope,
+		Type:          OpUninstall,
 	}
 }
 
