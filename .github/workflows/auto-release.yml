@@ -35,9 +35,12 @@ jobs:
         id: version
         run: |
           BASE_VERSION=$(cat version.txt | tr -d '\n')
-          VERSION="v${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
+          # Count commits since version.txt was last changed
+          LAST_VERSION_COMMIT=$(git log -1 --format=%H version.txt)
+          COMMIT_COUNT=$(git rev-list --count ${LAST_VERSION_COMMIT}..HEAD)
+          VERSION="v${BASE_VERSION}.${COMMIT_COUNT}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Creating release: $VERSION"
+          echo "Creating release: $VERSION (base: ${BASE_VERSION}, commits since version bump: ${COMMIT_COUNT})"
 
       - name: Create and push tag
         run: |
