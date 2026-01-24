@@ -1164,3 +1164,121 @@ func TestHandleMouseWheelDown(t *testing.T) {
 		t.Errorf("selectedIdx = %d, should have moved down", m.selectedIdx)
 	}
 }
+
+// --- Enable/Disable Client Method Tests ---
+
+// TestMockClientEnablePlugin tests that mockClient.EnablePlugin can be called with callbacks.
+func TestMockClientEnablePlugin(t *testing.T) {
+	called := false
+	var capturedPluginID string
+	var capturedScope claude.Scope
+
+	client := &mockClient{
+		enableFn: func(pluginID string, scope claude.Scope) error {
+			called = true
+			capturedPluginID = pluginID
+			capturedScope = scope
+			return nil
+		},
+	}
+
+	err := client.EnablePlugin("test@marketplace", claude.ScopeLocal)
+	if err != nil {
+		t.Errorf("EnablePlugin returned error: %v", err)
+	}
+	if !called {
+		t.Error("enableFn was not called")
+	}
+	if capturedPluginID != "test@marketplace" {
+		t.Errorf("capturedPluginID = %q, want 'test@marketplace'", capturedPluginID)
+	}
+	if capturedScope != claude.ScopeLocal {
+		t.Errorf("capturedScope = %q, want ScopeLocal", capturedScope)
+	}
+}
+
+// TestMockClientDisablePlugin tests that mockClient.DisablePlugin can be called with callbacks.
+func TestMockClientDisablePlugin(t *testing.T) {
+	called := false
+	var capturedPluginID string
+	var capturedScope claude.Scope
+
+	client := &mockClient{
+		disableFn: func(pluginID string, scope claude.Scope) error {
+			called = true
+			capturedPluginID = pluginID
+			capturedScope = scope
+			return nil
+		},
+	}
+
+	err := client.DisablePlugin("test@marketplace", claude.ScopeProject)
+	if err != nil {
+		t.Errorf("DisablePlugin returned error: %v", err)
+	}
+	if !called {
+		t.Error("disableFn was not called")
+	}
+	if capturedPluginID != "test@marketplace" {
+		t.Errorf("capturedPluginID = %q, want 'test@marketplace'", capturedPluginID)
+	}
+	if capturedScope != claude.ScopeProject {
+		t.Errorf("capturedScope = %q, want ScopeProject", capturedScope)
+	}
+}
+
+// TestMockClientEnablePluginWithError tests that mockClient.EnablePlugin propagates errors.
+func TestMockClientEnablePluginWithError(t *testing.T) {
+	client := &mockClient{
+		enableFn: func(_ string, _ claude.Scope) error {
+			return fmt.Errorf("enable failed: permission denied")
+		},
+	}
+
+	err := client.EnablePlugin("test@marketplace", claude.ScopeLocal)
+
+	if err == nil {
+		t.Error("EnablePlugin should return error")
+	}
+	if !strings.Contains(err.Error(), "enable failed") {
+		t.Errorf("error message = %v, should contain 'enable failed'", err)
+	}
+}
+
+// TestMockClientDisablePluginWithError tests that mockClient.DisablePlugin propagates errors.
+func TestMockClientDisablePluginWithError(t *testing.T) {
+	client := &mockClient{
+		disableFn: func(_ string, _ claude.Scope) error {
+			return fmt.Errorf("disable failed: plugin not found")
+		},
+	}
+
+	err := client.DisablePlugin("test@marketplace", claude.ScopeProject)
+
+	if err == nil {
+		t.Error("DisablePlugin should return error")
+	}
+	if !strings.Contains(err.Error(), "disable failed") {
+		t.Errorf("error message = %v, should contain 'disable failed'", err)
+	}
+}
+
+// TestMockClientEnablePluginDefaultBehavior tests that EnablePlugin works without callbacks.
+func TestMockClientEnablePluginDefaultBehavior(t *testing.T) {
+	client := &mockClient{} // No enableFn callback
+
+	err := client.EnablePlugin("test@marketplace", claude.ScopeLocal)
+	if err != nil {
+		t.Errorf("EnablePlugin should return nil when no error configured: %v", err)
+	}
+}
+
+// TestMockClientDisablePluginDefaultBehavior tests that DisablePlugin works without callbacks.
+func TestMockClientDisablePluginDefaultBehavior(t *testing.T) {
+	client := &mockClient{} // No disableFn callback
+
+	err := client.DisablePlugin("test@marketplace", claude.ScopeProject)
+	if err != nil {
+		t.Errorf("DisablePlugin should return nil when no error configured: %v", err)
+	}
+}

@@ -73,6 +73,28 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 	switch {
 	case matchesKey(msg, keys.Filter):
 		m.handleFilterKey()
+	case matchesKey(msg, keys.Up), matchesKey(msg, keys.Down),
+		matchesKey(msg, keys.PageUp), matchesKey(msg, keys.PageDown),
+		matchesKey(msg, keys.Home), matchesKey(msg, keys.End):
+		m.handleNavigationKeys(msg, keys)
+	case matchesKey(msg, keys.Local), matchesKey(msg, keys.Project),
+		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall):
+		m.handleOperationKeys(msg, keys)
+	case matchesKey(msg, keys.Enter):
+		if len(m.pendingOps) > 0 {
+			m.showConfirm = true
+		}
+	case matchesKey(msg, keys.Escape):
+		plugin := m.getSelectedPlugin()
+		if plugin != nil {
+			m.clearPending(plugin.ID)
+		}
+	}
+}
+
+// handleNavigationKeys handles all navigation-related key presses.
+func (m *Model) handleNavigationKeys(msg tea.KeyMsg, keys KeyBindings) {
+	switch {
 	case matchesKey(msg, keys.Up):
 		m.moveUp()
 	case matchesKey(msg, keys.Down):
@@ -85,6 +107,12 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.moveToStart()
 	case matchesKey(msg, keys.End):
 		m.moveToEnd()
+	}
+}
+
+// handleOperationKeys handles all operation-related key presses (install, uninstall, toggle).
+func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
+	switch {
 	case matchesKey(msg, keys.Local):
 		m.selectForInstall(claude.ScopeLocal)
 	case matchesKey(msg, keys.Project):
@@ -93,15 +121,6 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.toggleScope()
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
-	case matchesKey(msg, keys.Enter):
-		if len(m.pendingOps) > 0 {
-			m.showConfirm = true
-		}
-	case matchesKey(msg, keys.Escape):
-		plugin := m.getSelectedPlugin()
-		if plugin != nil {
-			m.clearPending(plugin.ID)
-		}
 	}
 }
 
