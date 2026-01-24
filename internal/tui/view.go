@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -338,47 +339,80 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	lines = append(lines, styles.Header.Render(" Apply Changes? "))
 	lines = append(lines, "")
 
-	// List pending operations
+	// Count operations by type
 	installs := 0
 	uninstalls := 0
+	enables := 0
+	disables := 0
+
+	// Display operations grouped by type
+	var operations []Operation
 	for _, op := range m.pendingOps {
+		operations = append(operations, op)
+	}
+
+	// Sort operations by type for consistent display
+	// Uninstalls, then installs, then enables, then disables
+	sort.Slice(operations, func(i, j int) bool {
+		typeOrder := map[OperationType]int{
+			OpUninstall: 0,
+			OpInstall:   1,
+			OpEnable:    2,
+			OpDisable:   3,
+		}
+		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
+	})
+
+	for _, op := range operations {
 		var action string
-		if op.Type == OpUninstall {
-			action = styles.Pending.Render("Uninstall: ") + op.PluginID
-			uninstalls++
-		} else if op.Type == OpInstall {
+		switch op.Type {
+		case OpInstall:
 			action = styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
 			installs++
+		case OpUninstall:
+			action = styles.Pending.Render("Uninstall: ") + op.PluginID
+			uninstalls++
+		case OpEnable:
+			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
+			enables++
+		case OpDisable:
+			action = styles.Pending.Render("Disable: ") + op.PluginID
+			disables++
 		}
 		lines = append(lines, "  "+action)
 	}
 
 	lines = append(lines, "")
-	summary := ""
+
+	// Build summary line
+	var summaryParts []string
 	if installs > 0 {
-		summary += strconv.Itoa(installs) + " install(s)"
+		summaryParts = append(summaryParts, strconv.Itoa(installs)+" install(s)")
 	}
 	if uninstalls > 0 {
-		if summary != "" {
-			summary += ", "
-		}
-		summary += strconv.Itoa(uninstalls) + " uninstall(s)"
+		summaryParts = append(summaryParts, strconv.Itoa(uninstalls)+" uninstall(s)")
 	}
-	lines = append(lines, styles.DetailLabel.Render("Total: ")+summary)
+	if enables > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
+	}
+	if disables > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(disables)+" disable(s)")
+	}
+
+	summary := strings.Join(summaryParts, ", ")
+	lines = append(lines, styles.DetailLabel.Render(summary))
 	lines = append(lines, "")
-	lines = append(lines, styles.Help.Render("Press Enter to confirm, Esc to cancel"))
+	lines = append(lines, "Press Enter to confirm, Esc to cancel")
 
-	content := strings.Join(lines, "\n")
-
-	// Center the modal
-	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(1, 2).
-		Width(50).
-		Render(content)
-
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.Header.GetForeground()).
+			Padding(1, 2).
+			Render(strings.Join(lines, "\n")),
+	)
 }
 
 // renderProgress renders the progress modal.
