@@ -1,6 +1,6 @@
 # Claude CLI Client
 
-Last verified: 2026-01-22
+Last verified: 2026-01-24
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Provides a typed Go interface to the Claude Code CLI and plugin manifest reading
 
 ## Contracts
 
-- **Exposes**: `Client` interface with `ListPlugins`, `InstallPlugin`, `UninstallPlugin`
+- **Exposes**: `Client` interface with `ListPlugins`, `InstallPlugin`, `UninstallPlugin`, `EnablePlugin`, `DisablePlugin`
 - **Exposes**: `ReadPluginManifest(installPath)` - reads plugin.json for metadata
 - **Exposes**: `ScanPluginComponents(installPath)` - discovers skills, agents, commands, hooks, MCPs
 - **Exposes**: `ResolveMarketplaceSourcePath(marketplace, source)` - resolves local marketplace paths
