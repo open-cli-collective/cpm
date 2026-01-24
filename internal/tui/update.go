@@ -386,18 +386,22 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		m.operations = append(m.operations, op)
 	}
 
-	// Sort operations: uninstalls first, then installs
-	// (enable/disable will be added in Phase 5)
+	// Sort operations: uninstalls first, then installs, then enable/disable
 	sort.Slice(m.operations, func(i, j int) bool {
-		// Uninstalls before installs
-		if m.operations[i].Type == OpUninstall && m.operations[j].Type == OpInstall {
-			return true
+		typeOrder := map[OperationType]int{
+			OpUninstall: 0,
+			OpInstall:   1,
+			OpEnable:    2,
+			OpDisable:   3,
 		}
-		if m.operations[i].Type == OpInstall && m.operations[j].Type == OpUninstall {
+		orderI := typeOrder[m.operations[i].Type]
+		orderJ := typeOrder[m.operations[j].Type]
+
+		// If same order, maintain stable sort (don't swap)
+		if orderI == orderJ {
 			return false
 		}
-		// Same type: maintain order
-		return false
+		return orderI < orderJ
 	})
 
 	m.currentOpIdx = 0
