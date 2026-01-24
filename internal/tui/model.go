@@ -141,7 +141,7 @@ type Model struct {
 	styles          Styles
 	err             error
 	client          claude.Client
-	pending         map[string]claude.Scope
+	pendingOps      map[string]Operation
 	workingDir      string
 	filterText      string
 	keys            KeyBindings
@@ -169,7 +169,7 @@ func NewModel(client claude.Client, workingDir string) *Model {
 		workingDir:   workingDir,
 		styles:       DefaultStyles(),
 		keys:         DefaultKeyBindings(),
-		pending:      make(map[string]claude.Scope),
+		pendingOps:   make(map[string]Operation),
 		loading:      true,
 		mouseEnabled: true,
 	}
