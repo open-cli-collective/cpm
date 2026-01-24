@@ -448,7 +448,13 @@ func (m *Model) renderProgress(styles Styles) string {
 			scopeStr = " (" + string(op.Scope) + ")"
 		case OpUninstall:
 			action = "Uninstall"
-			scopeStr = "" // No scope display for uninstalls
+			scopeStr = ""
+		case OpEnable:
+			action = "Enable"
+			scopeStr = ""
+		case OpDisable:
+			action = "Disable"
+			scopeStr = ""
 		default:
 			action = "Unknown"
 			scopeStr = ""
