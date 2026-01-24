@@ -72,6 +72,8 @@ type mockClient struct {
 	err         error
 	installFn   func(string, claude.Scope) error
 	uninstallFn func(string, claude.Scope) error
+	enableFn    func(string, claude.Scope) error
+	disableFn   func(string, claude.Scope) error
 }
 
 func (m *mockClient) ListPlugins(_ bool) (*claude.PluginList, error) {
@@ -94,6 +96,20 @@ func (m *mockClient) InstallPlugin(pluginID string, scope claude.Scope) error {
 func (m *mockClient) UninstallPlugin(pluginID string, scope claude.Scope) error {
 	if m.uninstallFn != nil {
 		return m.uninstallFn(pluginID, scope)
+	}
+	return m.err
+}
+
+func (m *mockClient) EnablePlugin(pluginID string, scope claude.Scope) error {
+	if m.enableFn != nil {
+		return m.enableFn(pluginID, scope)
+	}
+	return m.err
+}
+
+func (m *mockClient) DisablePlugin(pluginID string, scope claude.Scope) error {
+	if m.disableFn != nil {
+		return m.disableFn(pluginID, scope)
 	}
 	return m.err
 }
