@@ -8,8 +8,8 @@ pre-commit:
 
     golangci-lint:
       glob: "*.go"
-      run: golangci-lint run --fix {staged_files}
-      stage_fixed: true
+      run: golangci-lint run ./...
+      stage_fixed: false
 
     govet:
       glob: "*.go"

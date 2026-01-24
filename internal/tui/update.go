@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,6 +73,29 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 	switch {
 	case matchesKey(msg, keys.Filter):
 		m.handleFilterKey()
+	case matchesKey(msg, keys.Up), matchesKey(msg, keys.Down),
+		matchesKey(msg, keys.PageUp), matchesKey(msg, keys.PageDown),
+		matchesKey(msg, keys.Home), matchesKey(msg, keys.End):
+		m.handleNavigationKeys(msg, keys)
+	case matchesKey(msg, keys.Local), matchesKey(msg, keys.Project),
+		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall),
+		matchesKey(msg, keys.Enable):
+		m.handleOperationKeys(msg, keys)
+	case matchesKey(msg, keys.Enter):
+		if len(m.pendingOps) > 0 {
+			m.showConfirm = true
+		}
+	case matchesKey(msg, keys.Escape):
+		plugin := m.getSelectedPlugin()
+		if plugin != nil {
+			m.clearPending(plugin.ID)
+		}
+	}
+}
+
+// handleNavigationKeys handles all navigation-related key presses.
+func (m *Model) handleNavigationKeys(msg tea.KeyMsg, keys KeyBindings) {
+	switch {
 	case matchesKey(msg, keys.Up):
 		m.moveUp()
 	case matchesKey(msg, keys.Down):
@@ -83,6 +108,12 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.moveToStart()
 	case matchesKey(msg, keys.End):
 		m.moveToEnd()
+	}
+}
+
+// handleOperationKeys handles all operation-related key presses (install, uninstall, toggle).
+func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
+	switch {
 	case matchesKey(msg, keys.Local):
 		m.selectForInstall(claude.ScopeLocal)
 	case matchesKey(msg, keys.Project):
@@ -91,18 +122,14 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.toggleScope()
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
-	case matchesKey(msg, keys.Enter):
-		if len(m.pending) > 0 {
-			m.showConfirm = true
-		}
-	case matchesKey(msg, keys.Escape):
-		m.clearPending()
+	case matchesKey(msg, keys.Enable):
+		m.toggleEnablement()
 	}
 }
 
 // handleQuitKey handles the quit key, showing confirmation if there are pending changes.
 func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
-	if len(m.pending) > 0 && !m.showQuitConfirm {
+	if len(m.pendingOps) > 0 && !m.showQuitConfirm {
 		m.showQuitConfirm = true
 		return m, nil
 	}
@@ -224,13 +251,20 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 		return
 	}
 
-	// If already installed at this scope, remove the pending change
-	if plugin.InstalledScope == scope {
-		delete(m.pending, plugin.ID)
-		return
+	// If already pending for the same scope, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpInstall && existingOp.Scope == scope {
+			m.clearPending(plugin.ID)
+			return
+		}
 	}
 
-	m.pending[plugin.ID] = scope
+	// Create install operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID: plugin.ID,
+		Scope:    scope,
+		Type:     OpInstall,
+	}
 }
 
 // toggleScope cycles through: none -> local -> project -> uninstall -> none
@@ -240,67 +274,84 @@ func (m *Model) toggleScope() {
 		return
 	}
 
-	current := m.getCurrentDesiredScope(plugin)
+	// Determine next scope in cycle: None → Local → Project → Uninstall → None
+	var nextOp Operation
 
-	var next claude.Scope
-	switch current {
-	case claude.ScopeNone:
-		// Not installed and no pending -> install local
-		next = claude.ScopeLocal
-	case claude.ScopeLocal:
-		// Local (or pending local) -> project
-		next = claude.ScopeProject
-	case claude.ScopeProject:
-		// Project (or pending project) -> uninstall (if installed) or none
-		if plugin.InstalledScope != claude.ScopeNone {
-			// Mark for uninstall
-			m.pending[plugin.ID] = claude.ScopeNone
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		// Already has pending operation, cycle to next state
+		switch {
+		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeLocal:
+			// Local → Project
+			nextOp = Operation{
+				PluginID: plugin.ID,
+				Scope:    claude.ScopeProject,
+				Type:     OpInstall,
+			}
+		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeProject:
+			// Project → Uninstall (if installed)
+			if plugin.InstalledScope != claude.ScopeNone {
+				nextOp = Operation{
+					PluginID:      plugin.ID,
+					Scope:         claude.ScopeNone,
+					OriginalScope: plugin.InstalledScope,
+					Type:          OpUninstall,
+				}
+			} else {
+				// Not installed, go back to None
+				m.clearPending(plugin.ID)
+				return
+			}
+		case existingOp.Type == OpUninstall:
+			// Uninstall → None (clear)
+			m.clearPending(plugin.ID)
 			return
+		default:
+			// Default to Local
+			nextOp = Operation{
+				PluginID: plugin.ID,
+				Scope:    claude.ScopeLocal,
+				Type:     OpInstall,
+			}
 		}
-		// Not installed, just clear pending
-		delete(m.pending, plugin.ID)
-		return
+	} else {
+		// No pending operation, start with Local
+		nextOp = Operation{
+			PluginID: plugin.ID,
+			Scope:    claude.ScopeLocal,
+			Type:     OpInstall,
+		}
 	}
 
-	// If cycling back to original state, clear pending
-	if next == plugin.InstalledScope {
-		delete(m.pending, plugin.ID)
-	} else {
-		m.pending[plugin.ID] = next
-	}
+	m.pendingOps[plugin.ID] = nextOp
 }
 
 // selectForUninstall marks the selected plugin for uninstallation.
 func (m *Model) selectForUninstall() {
 	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
-		return
+	if plugin == nil || plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
+		return // Can't uninstall if not installed or if group header
 	}
 
-	// Can only uninstall if currently installed
-	if plugin.InstalledScope == claude.ScopeNone {
-		// If pending install, clear it
-		delete(m.pending, plugin.ID)
-		return
+	// If already pending uninstall, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpUninstall {
+			m.clearPending(plugin.ID)
+			return
+		}
 	}
 
-	// Toggle uninstall
-	if pending, ok := m.pending[plugin.ID]; ok && pending == claude.ScopeNone {
-		// Already marked for uninstall, clear it
-		delete(m.pending, plugin.ID)
-	} else {
-		// Mark for uninstall
-		m.pending[plugin.ID] = claude.ScopeNone
+	// Create uninstall operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID:      plugin.ID,
+		Scope:         claude.ScopeNone,
+		OriginalScope: plugin.InstalledScope,
+		Type:          OpUninstall,
 	}
 }
 
 // clearPending clears the pending change for the selected plugin.
-func (m *Model) clearPending() {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil {
-		return
-	}
-	delete(m.pending, plugin.ID)
+func (m *Model) clearPending(pluginID string) {
+	delete(m.pendingOps, pluginID)
 }
 
 // getSelectedPlugin returns the currently selected plugin, or nil if none.
@@ -309,14 +360,6 @@ func (m *Model) getSelectedPlugin() *PluginState {
 		return nil
 	}
 	return &m.plugins[m.selectedIdx]
-}
-
-// getCurrentDesiredScope returns the effective scope (pending or installed).
-func (m *Model) getCurrentDesiredScope(plugin *PluginState) claude.Scope {
-	if pending, ok := m.pending[plugin.ID]; ok {
-		return pending
-	}
-	return plugin.InstalledScope
 }
 
 // updateConfirmation handles messages in confirmation mode.
@@ -337,51 +380,57 @@ func (m *Model) updateConfirmation(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // startExecution begins executing pending operations.
 func (m *Model) startExecution() (tea.Model, tea.Cmd) {
-	// Build operation list
+	// Build operation list from pendingOps
 	m.operations = nil
-	for pluginID, scope := range m.pending {
-		isInstall := scope != claude.ScopeNone
-		op := Operation{
-			PluginID:  pluginID,
-			Scope:     scope,
-			IsInstall: isInstall,
-		}
-
-		// For uninstalls, track the original scope
-		if !isInstall {
-			// Find the plugin to get its current installed scope
-			for _, p := range m.plugins {
-				if p.ID == pluginID && p.InstalledScope != claude.ScopeNone {
-					op.OriginalScope = p.InstalledScope
-					break
-				}
-			}
-		}
-
+	for _, op := range m.pendingOps {
 		m.operations = append(m.operations, op)
 	}
 
-	m.currentOpIdx = 0
-	m.operationErrors = make([]string, len(m.operations))
-	m.mode = ModeProgress
+	// Sort operations: uninstalls first, then installs, then enable/disable
+	sort.Slice(m.operations, func(i, j int) bool {
+		typeOrder := map[OperationType]int{
+			OpUninstall: 0,
+			OpInstall:   1,
+			OpEnable:    2,
+			OpDisable:   3,
+		}
+		orderI := typeOrder[m.operations[i].Type]
+		orderJ := typeOrder[m.operations[j].Type]
 
-	// Start first operation
-	if len(m.operations) > 0 {
-		return m, m.executeOperation(m.operations[0])
+		// If same order, maintain stable sort (don't swap)
+		if orderI == orderJ {
+			return false
+		}
+		return orderI < orderJ
+	})
+
+	m.currentOpIdx = 0
+	m.mode = ModeProgress
+	m.operationErrors = nil
+
+	if len(m.operations) == 0 {
+		return m, nil
 	}
 
-	return m, nil
+	return m, m.executeOperation(m.operations[0])
 }
 
 // executeOperation returns a command that executes a single operation.
 func (m *Model) executeOperation(op Operation) tea.Cmd {
 	return func() tea.Msg {
 		var err error
-		if op.IsInstall {
+		switch op.Type {
+		case OpInstall:
 			err = m.client.InstallPlugin(op.PluginID, op.Scope)
-		} else {
+		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
 			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+		case OpEnable:
+			err = m.client.EnablePlugin(op.PluginID, op.Scope)
+		case OpDisable:
+			err = m.client.DisablePlugin(op.PluginID, op.Scope)
+		default:
+			err = fmt.Errorf("unknown operation type: %d", op.Type)
 		}
 
 		return operationDoneMsg{op: op, err: err}
@@ -405,7 +454,7 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// All done - refresh and show summary
 		m.mode = ModeSummary
-		m.pending = make(map[string]claude.Scope)
+		m.pendingOps = make(map[string]Operation)
 		return m, m.loadPlugins
 	}
 	return m, nil

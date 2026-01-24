@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -115,21 +116,45 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 // getScopeIndicator returns the scope indicator for a plugin.
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
-	if pending, ok := m.pending[plugin.ID]; ok {
-		if pending == claude.ScopeNone {
+	if op, ok := m.pendingOps[plugin.ID]; ok {
+		switch op.Type {
+		case OpInstall:
+			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+		case OpUninstall:
 			return styles.Pending.Render("[→ UNINSTALL]")
+		case OpEnable:
+			return styles.Pending.Render("[→ ENABLED]")
+		case OpDisable:
+			return styles.Pending.Render("[→ DISABLED]")
 		}
-		return styles.Pending.Render("[→ " + strings.ToUpper(string(pending)) + "]")
 	}
 
 	// Show current scope
+	var scopeText string
 	switch plugin.InstalledScope {
 	case claude.ScopeLocal:
-		return styles.ScopeLocal.Render("[LOCAL]")
+		scopeText = "LOCAL"
 	case claude.ScopeProject:
-		return styles.ScopeProject.Render("[PROJECT]")
+		scopeText = "PROJECT"
 	case claude.ScopeUser:
-		return styles.ScopeUser.Render("[USER]")
+		scopeText = "USER"
+	default:
+		return ""
+	}
+
+	// Append disabled status if applicable
+	if !plugin.Enabled {
+		scopeText += ", DISABLED"
+	}
+
+	// Apply style based on scope
+	switch plugin.InstalledScope {
+	case claude.ScopeLocal:
+		return styles.ScopeLocal.Render("[" + scopeText + "]")
+	case claude.ScopeProject:
+		return styles.ScopeProject.Render("[" + scopeText + "]")
+	case claude.ScopeUser:
+		return styles.ScopeUser.Render("[" + scopeText + "]")
 	default:
 		return ""
 	}
@@ -226,16 +251,25 @@ func (m *Model) getStatusText(plugin PluginState) string {
 
 // appendPendingChange appends pending change information if applicable.
 func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles Styles) []string {
-	pending, ok := m.pending[plugin.ID]
+	op, ok := m.pendingOps[plugin.ID]
 	if !ok {
 		return lines
 	}
+
 	var pendingStr string
-	if pending == claude.ScopeNone {
+	switch op.Type {
+	case OpInstall:
+		pendingStr = "Will be installed to " + string(op.Scope)
+	case OpUninstall:
 		pendingStr = "Will be uninstalled"
-	} else {
-		pendingStr = "Will be installed to " + string(pending)
+	case OpEnable:
+		pendingStr = "Will be enabled"
+	case OpDisable:
+		pendingStr = "Will be disabled"
+	default:
+		pendingStr = "Unknown operation"
 	}
+
 	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
 }
 
@@ -307,7 +341,7 @@ func (m *Model) renderHelp(styles Styles) string {
 		mouseIndicator = "m: mouse on"
 	}
 
-	if len(m.pending) > 0 {
+	if len(m.pendingOps) > 0 {
 		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 	}
 	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
@@ -315,7 +349,7 @@ func (m *Model) renderHelp(styles Styles) string {
 
 // renderConfirmation renders the confirmation modal.
 func (m *Model) renderConfirmation(styles Styles) string {
-	if len(m.pending) == 0 {
+	if len(m.pendingOps) == 0 {
 		return ""
 	}
 
@@ -323,47 +357,80 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	lines = append(lines, styles.Header.Render(" Apply Changes? "))
 	lines = append(lines, "")
 
-	// List pending operations
+	// Count operations by type
 	installs := 0
 	uninstalls := 0
-	for pluginID, scope := range m.pending {
+	enables := 0
+	disables := 0
+
+	// Display operations grouped by type
+	var operations []Operation
+	for _, op := range m.pendingOps {
+		operations = append(operations, op)
+	}
+
+	// Sort operations by type for consistent display
+	// Uninstalls, then installs, then enables, then disables
+	sort.Slice(operations, func(i, j int) bool {
+		typeOrder := map[OperationType]int{
+			OpUninstall: 0,
+			OpInstall:   1,
+			OpEnable:    2,
+			OpDisable:   3,
+		}
+		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
+	})
+
+	for _, op := range operations {
 		var action string
-		if scope == claude.ScopeNone {
-			action = styles.Pending.Render("Uninstall: ") + pluginID
-			uninstalls++
-		} else {
-			action = styles.ScopeProject.Render("Install ("+string(scope)+"): ") + pluginID
+		switch op.Type {
+		case OpInstall:
+			action = styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
 			installs++
+		case OpUninstall:
+			action = styles.Pending.Render("Uninstall: ") + op.PluginID
+			uninstalls++
+		case OpEnable:
+			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
+			enables++
+		case OpDisable:
+			action = styles.Pending.Render("Disable: ") + op.PluginID
+			disables++
 		}
 		lines = append(lines, "  "+action)
 	}
 
 	lines = append(lines, "")
-	summary := ""
+
+	// Build summary line
+	var summaryParts []string
 	if installs > 0 {
-		summary += strconv.Itoa(installs) + " install(s)"
+		summaryParts = append(summaryParts, strconv.Itoa(installs)+" install(s)")
 	}
 	if uninstalls > 0 {
-		if summary != "" {
-			summary += ", "
-		}
-		summary += strconv.Itoa(uninstalls) + " uninstall(s)"
+		summaryParts = append(summaryParts, strconv.Itoa(uninstalls)+" uninstall(s)")
 	}
-	lines = append(lines, styles.DetailLabel.Render("Total: ")+summary)
+	if enables > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
+	}
+	if disables > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(disables)+" disable(s)")
+	}
+
+	summary := strings.Join(summaryParts, ", ")
+	lines = append(lines, styles.DetailLabel.Render(summary))
 	lines = append(lines, "")
-	lines = append(lines, styles.Help.Render("Press Enter to confirm, Esc to cancel"))
+	lines = append(lines, "Press Enter to confirm, Esc to cancel")
 
-	content := strings.Join(lines, "\n")
-
-	// Center the modal
-	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(1, 2).
-		Width(50).
-		Render(content)
-
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.Header.GetForeground()).
+			Padding(1, 2).
+			Render(strings.Join(lines, "\n")),
+	)
 }
 
 // renderProgress renders the progress modal.
@@ -390,13 +457,25 @@ func (m *Model) renderProgress(styles Styles) string {
 			status = "○ Pending"
 		}
 
-		action := "Install"
-		if !op.IsInstall {
-			action = "Uninstall"
-		}
-		scopeStr := ""
-		if op.IsInstall {
+		var action string
+		var scopeStr string
+
+		switch op.Type {
+		case OpInstall:
+			action = "Install"
 			scopeStr = " (" + string(op.Scope) + ")"
+		case OpUninstall:
+			action = "Uninstall"
+			scopeStr = ""
+		case OpEnable:
+			action = "Enable"
+			scopeStr = ""
+		case OpDisable:
+			action = "Disable"
+			scopeStr = ""
+		default:
+			action = "Unknown"
+			scopeStr = ""
 		}
 
 		line := status + " " + action + scopeStr + ": " + op.PluginID
@@ -508,7 +587,7 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 	var lines []string
 	lines = append(lines, styles.Header.Render(" Quit Without Applying? "))
 	lines = append(lines, "")
-	lines = append(lines, "You have "+strconv.Itoa(len(m.pending))+" pending change(s).")
+	lines = append(lines, "You have "+strconv.Itoa(len(m.pendingOps))+" pending change(s).")
 	lines = append(lines, "")
 	lines = append(lines, styles.Help.Render("Press q again to quit, Esc to cancel"))
 

@@ -9,6 +9,16 @@ import (
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
+// OperationType represents the type of operation to perform.
+type OperationType int
+
+const (
+	OpInstall OperationType = iota
+	OpUninstall
+	OpEnable
+	OpDisable
+)
+
 // Mode represents the current UI mode.
 type Mode int
 
@@ -131,7 +141,7 @@ type Model struct {
 	styles          Styles
 	err             error
 	client          claude.Client
-	pending         map[string]claude.Scope
+	pendingOps      map[string]Operation
 	workingDir      string
 	filterText      string
 	keys            KeyBindings
@@ -159,7 +169,7 @@ func NewModel(client claude.Client, workingDir string) *Model {
 		workingDir:   workingDir,
 		styles:       DefaultStyles(),
 		keys:         DefaultKeyBindings(),
-		pending:      make(map[string]claude.Scope),
+		pendingOps:   make(map[string]Operation),
 		loading:      true,
 		mouseEnabled: true,
 	}
@@ -184,8 +194,8 @@ type pluginsErrorMsg struct {
 type Operation struct {
 	PluginID      string
 	Scope         claude.Scope
-	OriginalScope claude.Scope // For uninstalls: the original scope to uninstall from
-	IsInstall     bool         // true for install, false for uninstall
+	OriginalScope claude.Scope  // For uninstalls: the original scope to uninstall from
+	Type          OperationType // Operation type: install, uninstall, enable, or disable
 }
 
 // operationDoneMsg is sent when an operation completes.
@@ -297,6 +307,51 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 	}
 
 	return result
+}
+
+// toggleEnablement toggles the enabled/disabled state of the selected plugin.
+// Only works for installed plugins. Blocked if plugin has pending install/uninstall.
+func (m *Model) toggleEnablement() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil {
+		return
+	}
+
+	// Can only enable/disable installed plugins
+	if plugin.InstalledScope == claude.ScopeNone {
+		return
+	}
+
+	// Block if plugin has pending install/uninstall operation
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpInstall || existingOp.Type == OpUninstall {
+			// Don't allow enable/disable when install/uninstall is pending
+			return
+		}
+	}
+
+	// Determine operation type based on current enabled state
+	var opType OperationType
+	if plugin.Enabled {
+		opType = OpDisable
+	} else {
+		opType = OpEnable
+	}
+
+	// If already pending the same operation, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == opType {
+			m.clearPending(plugin.ID)
+			return
+		}
+	}
+
+	// Create enable/disable operation
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID: plugin.ID,
+		Scope:    plugin.InstalledScope, // Use current installed scope
+		Type:     opType,
+	}
 }
 
 // Update implements tea.Model.

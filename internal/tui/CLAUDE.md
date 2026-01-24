@@ -1,6 +1,6 @@
 # TUI Package
 
-Last verified: 2026-01-22
+Last verified: 2026-01-24
 
 ## Purpose
 
@@ -9,7 +9,7 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 ## Contracts
 
 - **Exposes**: `NewModel(client, workingDir) -> *Model`, implements `tea.Model` interface
-- **Guarantees**: Pending changes tracked until explicit Apply. Filter preserves selection when possible. Only project/local plugins for current workingDir are shown.
+- **Guarantees**: Pending operations (install/uninstall/enable/disable) tracked until explicit Apply. Filter preserves selection when possible. Only project/local plugins for current workingDir are shown.
 - **Expects**: Valid `claude.Client` implementation. Terminal with reasonable size (handles resize).
 
 ## Dependencies
@@ -21,14 +21,15 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 ## Key Decisions
 
 - Flat model: Single `Model` struct contains all state (no nested sub-models)
-- Pending changes map: `map[string]claude.Scope` tracks desired scope per plugin
+- Pending operations map: `map[string]Operation` tracks pending operations per plugin
+- Operation type enum: `OpInstall`, `OpUninstall`, `OpEnable`, `OpDisable` define operation types
 - Mode enum: `ModeMain`, `ModeProgress`, `ModeSummary` control view rendering
 - Group headers: Non-selectable `PluginState` entries with `IsGroupHeader=true`
 
 ## Invariants
 
 - Selection cursor never lands on group headers (auto-skips)
-- Pending changes show visual indicator (`*`) in plugin list
+- Pending operations show visual indicator in plugin list (e.g., `[-> LOCAL]`, `[-> ENABLED]`)
 - Apply shows confirmation modal before executing
 - Quit with pending changes shows confirmation modal
 
@@ -43,4 +44,5 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 ## Gotchas
 
 - Filter indices: `filteredIdx` maps visible index to `plugins` slice index
-- Operation order: Uninstalls execute before installs (prevents scope conflicts)
+- Operation order: Uninstalls execute first, then installs, then enables, then disables
+- Enable/disable blocked when install/uninstall pending for same plugin (prevents conflicts)
