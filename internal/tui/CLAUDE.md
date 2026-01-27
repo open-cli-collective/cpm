@@ -1,6 +1,6 @@
 # TUI Package
 
-Last verified: 2026-01-24
+Last verified: 2026-01-26
 
 ## Purpose
 
@@ -14,7 +14,7 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 
 ## Dependencies
 
-- **Uses**: internal/claude (Client interface), Bubble Tea, Lip Gloss
+- **Uses**: internal/claude (Client interface, GetProjectEnabledPlugins), Bubble Tea, Lip Gloss
 - **Used by**: cmd/cpm (creates Model, runs tea.Program)
 - **Boundary**: No direct CLI calls; all plugin operations go through Client
 
@@ -25,6 +25,7 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 - Operation type enum: `OpInstall`, `OpUninstall`, `OpEnable`, `OpDisable` define operation types
 - Mode enum: `ModeMain`, `ModeProgress`, `ModeSummary` control view rendering
 - Group headers: Non-selectable `PluginState` entries with `IsGroupHeader=true`
+- Settings-based filtering: Project plugins determined by reading `.claude/settings.json` and `.claude/settings.local.json`, not CLI's `projectPath` field
 
 ## Invariants
 

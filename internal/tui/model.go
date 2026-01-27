@@ -215,27 +215,24 @@ func (m *Model) loadPlugins() tea.Msg {
 	return pluginsLoadedMsg{plugins: plugins}
 }
 
-// isRelevantInstall checks if an installed plugin is relevant to the current working directory.
-// User-scoped plugins are always relevant; project/local-scoped plugins must match the working directory.
-func isRelevantInstall(p claude.InstalledPlugin, workingDir string) bool {
-	if p.Scope == claude.ScopeUser {
-		return true // User-scoped plugins apply everywhere
-	}
-	// Project and local scoped plugins must match the working directory.
-	// Use prefix matching to handle git worktrees (workingDir may be inside projectPath).
-	return strings.HasPrefix(workingDir, p.ProjectPath)
-}
-
 // mergePlugins combines installed and available plugins, grouped by marketplace.
 // Only installed plugins relevant to workingDir are included.
 func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
-	// Build map of installed plugins by ID, filtered to relevant installs
+	// Get plugins enabled for this project from settings files
+	projectEnabled := claude.GetProjectEnabledPlugins(workingDir)
+
+	// Build map of installed plugins by ID
+	// User-scoped plugins are always relevant
+	// Project/local-scoped plugins are relevant if in the project's settings
 	installedByID := make(map[string]claude.InstalledPlugin)
 	for _, p := range list.Installed {
-		if !isRelevantInstall(p, workingDir) {
-			continue
+		if p.Scope == claude.ScopeUser {
+			installedByID[p.ID] = p
+		} else if _, ok := projectEnabled[p.ID]; ok {
+			// Plugin is in this project's settings - use the scope from settings
+			p.Scope = projectEnabled[p.ID]
+			installedByID[p.ID] = p
 		}
-		installedByID[p.ID] = p
 	}
 
 	// Track which installed plugins we've seen via available list
@@ -269,9 +266,16 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
-	// Add installed plugins that weren't in the available list (already filtered)
+	// Add installed plugins that weren't in the available list
+	// Only include those that are relevant (user-scoped or in project settings)
 	for _, p := range list.Installed {
-		if !isRelevantInstall(p, workingDir) {
+		// Check relevance: user scope or in project settings
+		isRelevant := p.Scope == claude.ScopeUser
+		if scope, ok := projectEnabled[p.ID]; ok {
+			isRelevant = true
+			p.Scope = scope // Use scope from settings
+		}
+		if !isRelevant {
 			continue
 		}
 		if seenInstalled[p.ID] {

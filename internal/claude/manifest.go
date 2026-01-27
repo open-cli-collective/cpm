@@ -142,6 +142,55 @@ func listMarkdownFiles(dir string) []string {
 	return result
 }
 
+// ProjectSettings represents the .claude/settings.json or .claude/settings.local.json file.
+type ProjectSettings struct {
+	EnabledPlugins map[string]bool `json:"enabledPlugins"`
+}
+
+// ReadProjectSettings reads the settings file at the given path.
+func ReadProjectSettings(settingsPath string) (*ProjectSettings, error) {
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var settings ProjectSettings
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, err
+	}
+
+	return &settings, nil
+}
+
+// GetProjectEnabledPlugins returns the set of plugin IDs enabled for the given working directory.
+// It reads both .claude/settings.json (project scope) and .claude/settings.local.json (local scope)
+// and returns a map of plugin ID to scope.
+func GetProjectEnabledPlugins(workingDir string) map[string]Scope {
+	result := make(map[string]Scope)
+
+	// Read project-scoped settings
+	projectSettingsPath := filepath.Join(workingDir, ".claude", "settings.json")
+	if settings, err := ReadProjectSettings(projectSettingsPath); err == nil {
+		for pluginID, enabled := range settings.EnabledPlugins {
+			if enabled {
+				result[pluginID] = ScopeProject
+			}
+		}
+	}
+
+	// Read local-scoped settings (overrides project if present)
+	localSettingsPath := filepath.Join(workingDir, ".claude", "settings.local.json")
+	if settings, err := ReadProjectSettings(localSettingsPath); err == nil {
+		for pluginID, enabled := range settings.EnabledPlugins {
+			if enabled {
+				result[pluginID] = ScopeLocal
+			}
+		}
+	}
+
+	return result
+}
+
 // ResolveMarketplaceSourcePath resolves the full path to a plugin in a marketplace.
 // It combines ~/.claude/plugins/marketplaces/<marketplace>/ with the source field.
 func ResolveMarketplaceSourcePath(marketplace string, source any) string {
