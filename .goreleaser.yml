@@ -52,7 +52,7 @@ homebrew_casks:
       owner: open-cli-collective
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    homepage: https://github.com/open-cli-collective/claude-plugin-manager
+    homepage: https://github.com/open-cli-collective/cpm
     description: "TUI for managing Claude Code plugins"
     binary: cpm
     hooks:
@@ -88,6 +88,6 @@ changelog:
 release:
   github:
     owner: open-cli-collective
-    name: claude-plugin-manager
+    name: cpm
   draft: false
   prerelease: auto
