@@ -67,7 +67,7 @@ func (c *realClient) ListPlugins(includeAvailable bool) (*PluginList, error) {
 
 // InstallPlugin implements Client.InstallPlugin.
 func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "install"}
+	args := []string{"plugin", "enable"}
 	if scope != ScopeNone {
 		args = append(args, "--scope", string(scope))
 	}
@@ -87,7 +87,7 @@ func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
 
 // UninstallPlugin implements Client.UninstallPlugin.
 func (c *realClient) UninstallPlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "uninstall"}
+	args := []string{"plugin", "disable"}
 	if scope != ScopeNone {
 		args = append(args, "--scope", string(scope))
 	}
