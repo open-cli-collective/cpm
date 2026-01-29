@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/open-cli-collective/cpm/internal/claude"
@@ -19,17 +20,63 @@ func main() {
 }
 
 func run() error {
-	// Handle --version and --help
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "--version", "-v":
+	theme := tui.ThemeAuto
+
+	// Handle flags
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch {
+		case arg == "--version" || arg == "-v":
 			fmt.Println(version.String())
 			return nil
-		case "--help", "-h":
+		case arg == "--help" || arg == "-h":
 			printUsage()
 			return nil
+		case arg == "--theme" || arg == "-t":
+			if i+1 >= len(os.Args) {
+				fmt.Fprintln(os.Stderr, "Error: --theme requires an argument (auto, light, dark)")
+				os.Exit(1)
+			}
+			i++
+			switch strings.ToLower(os.Args[i]) {
+			case "auto":
+				theme = tui.ThemeAuto
+			case "light":
+				theme = tui.ThemeLight
+			case "dark":
+				theme = tui.ThemeDark
+			default:
+				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", os.Args[i])
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--theme="):
+			val := strings.TrimPrefix(arg, "--theme=")
+			switch strings.ToLower(val) {
+			case "auto":
+				theme = tui.ThemeAuto
+			case "light":
+				theme = tui.ThemeLight
+			case "dark":
+				theme = tui.ThemeDark
+			default:
+				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "-t="):
+			val := strings.TrimPrefix(arg, "-t=")
+			switch strings.ToLower(val) {
+			case "auto":
+				theme = tui.ThemeAuto
+			case "light":
+				theme = tui.ThemeLight
+			case "dark":
+				theme = tui.ThemeDark
+			default:
+				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
+				os.Exit(1)
+			}
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown option: %s\n\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "Unknown option: %s\n\n", arg)
 			printUsage()
 			os.Exit(1)
 		}
@@ -48,7 +95,7 @@ func run() error {
 
 	// Create client and model
 	client := claude.NewClient()
-	model := tui.NewModel(client, workingDir)
+	model := tui.NewModelWithTheme(client, workingDir, theme)
 
 	// Run the TUI
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -67,6 +114,7 @@ func printUsage() {
 	fmt.Println("Usage: cpm [options]")
 	fmt.Println()
 	fmt.Println("Options:")
-	fmt.Println("  -h, --help     Show this help message")
-	fmt.Println("  -v, --version  Show version information")
+	fmt.Println("  -h, --help           Show this help message")
+	fmt.Println("  -v, --version        Show version information")
+	fmt.Println("  -t, --theme <theme>  Set color theme: auto, light, dark (default: auto)")
 }

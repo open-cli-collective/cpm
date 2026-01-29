@@ -4,7 +4,75 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Colors for the UI.
+// Theme represents the color scheme to use.
+type Theme int
+
+const (
+	// ThemeAuto detects the terminal background color.
+	ThemeAuto Theme = iota
+	// ThemeDark uses colors optimized for dark backgrounds.
+	ThemeDark
+	// ThemeLight uses colors optimized for light backgrounds.
+	ThemeLight
+)
+
+// ColorPalette holds the colors used for styling.
+type ColorPalette struct {
+	Primary   lipgloss.Color
+	Secondary lipgloss.Color
+	Text      lipgloss.Color
+	Muted     lipgloss.Color
+	Local     lipgloss.Color
+	Project   lipgloss.Color
+	User      lipgloss.Color
+	Pending   lipgloss.Color
+	Border    lipgloss.Color
+}
+
+// darkPalette is optimized for dark terminal backgrounds.
+var darkPalette = ColorPalette{
+	Primary:   lipgloss.Color("#7D56F4"),
+	Secondary: lipgloss.Color("#5A4FCF"),
+	Text:      lipgloss.Color("#FAFAFA"),
+	Muted:     lipgloss.Color("#626262"),
+	Local:     lipgloss.Color("#FF9F1C"),
+	Project:   lipgloss.Color("#2EC4B6"),
+	User:      lipgloss.Color("#E71D36"),
+	Pending:   lipgloss.Color("#FFBF69"),
+	Border:    lipgloss.Color("#383838"),
+}
+
+// lightPalette is optimized for light terminal backgrounds.
+var lightPalette = ColorPalette{
+	Primary:   lipgloss.Color("#5B3DC8"),
+	Secondary: lipgloss.Color("#4A3AA8"),
+	Text:      lipgloss.Color("#1A1A1A"),
+	Muted:     lipgloss.Color("#6B6B6B"),
+	Local:     lipgloss.Color("#D97706"),
+	Project:   lipgloss.Color("#0F9488"),
+	User:      lipgloss.Color("#BE123C"),
+	Pending:   lipgloss.Color("#B45309"),
+	Border:    lipgloss.Color("#D1D5DB"),
+}
+
+// GetPalette returns the color palette for the given theme.
+// If ThemeAuto, it detects the terminal background.
+func GetPalette(theme Theme) ColorPalette {
+	switch theme {
+	case ThemeDark:
+		return darkPalette
+	case ThemeLight:
+		return lightPalette
+	default:
+		// Auto-detect based on terminal background
+		if lipgloss.HasDarkBackground() {
+			return darkPalette
+		}
+		return lightPalette
+	}
+}
+
+// Colors for the UI (kept for backward compatibility during transition).
 var (
 	colorPrimary   = lipgloss.Color("#7D56F4")
 	colorSecondary = lipgloss.Color("#5A4FCF")
@@ -50,83 +118,90 @@ type Styles struct {
 	Help lipgloss.Style
 }
 
-// DefaultStyles returns the default styles.
+// DefaultStyles returns the default styles with auto-detected theme.
 func DefaultStyles() Styles {
+	return DefaultStylesWithTheme(ThemeAuto)
+}
+
+// DefaultStylesWithTheme returns styles using the specified theme.
+func DefaultStylesWithTheme(theme Theme) Styles {
+	p := GetPalette(theme)
+
 	return Styles{
 		LeftPane: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
+			BorderForeground(p.Border).
 			Padding(0, 1),
 
 		RightPane: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
+			BorderForeground(p.Border).
 			Padding(1, 2),
 
 		Header: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorText).
-			Background(colorPrimary).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(p.Primary).
 			Padding(0, 1),
 
 		Selected: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorText).
-			Background(colorSecondary),
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(p.Secondary),
 
 		Normal: lipgloss.NewStyle().
-			Foreground(colorText),
+			Foreground(p.Text),
 
 		GroupHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPrimary),
+			Foreground(p.Primary),
 
 		Description: lipgloss.NewStyle().
-			Foreground(colorMuted).
+			Foreground(p.Muted).
 			Italic(true),
 
 		ScopeLocal: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorLocal),
+			Foreground(p.Local),
 
 		ScopeProject: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorProject),
+			Foreground(p.Project),
 
 		ScopeUser: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorUser),
+			Foreground(p.User),
 
 		Pending: lipgloss.NewStyle().
-			Foreground(colorPending),
+			Foreground(p.Pending),
 
 		DetailTitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPrimary).
+			Foreground(p.Primary).
 			MarginBottom(1),
 
 		DetailLabel: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorMuted),
+			Foreground(p.Muted),
 
 		DetailValue: lipgloss.NewStyle().
-			Foreground(colorText),
+			Foreground(p.Text),
 
 		DetailDescription: lipgloss.NewStyle().
-			Foreground(colorText).
+			Foreground(p.Text).
 			MarginTop(1),
 
 		ComponentCategory: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorSecondary).
+			Foreground(p.Secondary).
 			PaddingLeft(2),
 
 		ComponentItem: lipgloss.NewStyle().
-			Foreground(colorText).
+			Foreground(p.Text).
 			PaddingLeft(4),
 
 		Help: lipgloss.NewStyle().
-			Foreground(colorMuted),
+			Foreground(p.Muted),
 	}
 }
 
