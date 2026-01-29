@@ -363,9 +363,51 @@ func (m *Model) renderHelp(styles Styles) string {
 	sortInfo := "s: " + m.main.sortMode.String()
 
 	if len(m.main.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • Enter: apply • Esc: clear • /: filter • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • Enter: apply • Esc: clear • /: filter • ?: readme • C: changelog • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • /: filter • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • /: filter • ?: readme • C: changelog • " + mouseIndicator + " • q: quit")
+}
+
+// renderDoc renders the document view (README or CHANGELOG).
+func (m *Model) renderDoc(styles Styles) string {
+	if m.doc.content == "" {
+		return "No content."
+	}
+
+	// Split content into lines and handle scrolling
+	lines := strings.Split(m.doc.content, "\n")
+	visibleHeight := m.height - 4 // Account for header and help bar
+
+	// Clamp scroll position
+	maxScroll := len(lines) - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.doc.scroll > maxScroll {
+		m.doc.scroll = maxScroll
+	}
+
+	// Get visible lines
+	endIdx := m.doc.scroll + visibleHeight
+	if endIdx > len(lines) {
+		endIdx = len(lines)
+	}
+	visibleLines := lines[m.doc.scroll:endIdx]
+	content := strings.Join(visibleLines, "\n")
+
+	// Build header
+	header := styles.Header.Render(" " + m.doc.title + " ")
+
+	// Build content pane
+	contentPane := lipgloss.NewStyle().
+		Width(m.width - 2).
+		Height(visibleHeight).
+		Render(content)
+
+	// Build help bar
+	help := styles.Help.Render("↑↓/jk: scroll • PgUp/PgDn: page • g: top • q/Esc/?: close")
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, contentPane, help)
 }
 
 // renderConfirmation renders the confirmation modal.
