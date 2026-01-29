@@ -29,6 +29,16 @@ const (
 	ModeProgress
 	// ModeSummary shows completion summary (both successes and errors).
 	ModeSummary
+	// ModeDoc shows a document (README or CHANGELOG).
+	ModeDoc
+)
+
+// DocType represents the type of document being viewed.
+type DocType int
+
+const (
+	DocReadme DocType = iota
+	DocChangelog
 )
 
 // PluginState holds the display state for a plugin.
@@ -144,6 +154,8 @@ type Model struct {
 	pendingOps      map[string]Operation
 	workingDir      string
 	filterText      string
+	docContent      string // Rendered document content (README or CHANGELOG)
+	docTitle        string // Document title (plugin name + doc type)
 	keys            KeyBindings
 	plugins         []PluginState
 	filteredIdx     []int
@@ -155,6 +167,8 @@ type Model struct {
 	height          int
 	width           int
 	listOffset      int
+	docScroll       int     // Scroll position for document view
+	docType         DocType // Type of document being viewed
 	loading         bool
 	showConfirm     bool
 	filterActive    bool
@@ -403,6 +417,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProgress(msg)
 	case ModeSummary:
 		return m.updateError(msg)
+	case ModeDoc:
+		return m.updateDoc(msg)
 	}
 
 	return m, nil
@@ -433,6 +449,8 @@ func (m *Model) View() string {
 		return m.renderProgress(m.styles)
 	case ModeSummary:
 		return m.renderErrorSummary(m.styles)
+	case ModeDoc:
+		return m.renderDoc(m.styles)
 	}
 
 	return ""

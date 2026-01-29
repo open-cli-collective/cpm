@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
@@ -90,6 +93,10 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		if plugin != nil {
 			m.clearPending(plugin.ID)
 		}
+	case matchesKey(msg, keys.Readme):
+		m.openDoc(DocReadme)
+	case matchesKey(msg, keys.Changelog):
+		m.openDoc(DocChangelog)
 	}
 }
 
@@ -651,4 +658,125 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 			m.selectedIdx = actualIdx
 		}
 	}
+}
+
+// openDoc opens a document (README or CHANGELOG) for the selected plugin.
+func (m *Model) openDoc(docType DocType) {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil {
+		return
+	}
+
+	// Need install path to read local files
+	if plugin.InstallPath == "" {
+		return
+	}
+
+	// Determine which files to look for based on doc type
+	var filenames []string
+	var docTitle string
+	switch docType {
+	case DocReadme:
+		filenames = []string{"README.md", "readme.md", "Readme.md", "README", "readme"}
+		docTitle = "README: " + plugin.Name
+	case DocChangelog:
+		filenames = []string{"CHANGELOG.md", "changelog.md", "Changelog.md", "HISTORY.md", "history.md", "CHANGES.md"}
+		docTitle = "CHANGELOG: " + plugin.Name
+	}
+
+	// Try to find and read the document
+	var content []byte
+	var err error
+	for _, filename := range filenames {
+		docPath := filepath.Join(plugin.InstallPath, filename)
+		content, err = os.ReadFile(docPath)
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		// No document found
+		return
+	}
+
+	// Render markdown
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(m.width-4),
+	)
+	if err != nil {
+		return
+	}
+
+	rendered, err := renderer.Render(string(content))
+	if err != nil {
+		return
+	}
+
+	m.docContent = rendered
+	m.docTitle = docTitle
+	m.docScroll = 0
+	m.docType = docType
+	m.mode = ModeDoc
+}
+
+// updateDoc handles input in document view mode.
+func (m *Model) updateDoc(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		m.handleDocKeyInput(msg)
+	case tea.MouseMsg:
+		m.handleDocMouseInput(msg)
+	}
+	return m, nil
+}
+
+// handleDocKeyInput processes keyboard input in document view mode.
+func (m *Model) handleDocKeyInput(msg tea.KeyMsg) {
+	keys := m.keys
+	switch {
+	case matchesKey(msg, keys.Escape), matchesKey(msg, keys.Quit),
+		matchesKey(msg, keys.Readme), matchesKey(msg, keys.Changelog):
+		m.closeDocView()
+	case matchesKey(msg, keys.Up), msg.String() == "k":
+		if m.docScroll > 0 {
+			m.docScroll--
+		}
+	case matchesKey(msg, keys.Down), msg.String() == "j":
+		m.docScroll++
+	case matchesKey(msg, keys.PageUp):
+		m.docScroll -= 10
+		if m.docScroll < 0 {
+			m.docScroll = 0
+		}
+	case matchesKey(msg, keys.PageDown):
+		m.docScroll += 10
+	case matchesKey(msg, keys.Home):
+		m.docScroll = 0
+	}
+}
+
+// handleDocMouseInput processes mouse input in document view mode.
+func (m *Model) handleDocMouseInput(msg tea.MouseMsg) {
+	if msg.Action != tea.MouseActionPress {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.docScroll -= wheelScrollSpeed
+		if m.docScroll < 0 {
+			m.docScroll = 0
+		}
+	case tea.MouseButtonWheelDown:
+		m.docScroll += wheelScrollSpeed
+	}
+}
+
+// closeDocView exits document view and returns to main view.
+func (m *Model) closeDocView() {
+	m.mode = ModeMain
+	m.docContent = ""
+	m.docTitle = ""
+	m.docScroll = 0
 }

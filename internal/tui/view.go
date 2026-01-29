@@ -342,9 +342,51 @@ func (m *Model) renderHelp(styles Styles) string {
 	}
 
 	if len(m.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • ?: readme • C: changelog • r: refresh • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • ?: readme • C: changelog • r: refresh • " + mouseIndicator + " • q: quit")
+}
+
+// renderDoc renders the document view (README or CHANGELOG).
+func (m *Model) renderDoc(styles Styles) string {
+	if m.docContent == "" {
+		return "No content."
+	}
+
+	// Split content into lines and handle scrolling
+	lines := strings.Split(m.docContent, "\n")
+	visibleHeight := m.height - 4 // Account for header and help bar
+
+	// Clamp scroll position
+	maxScroll := len(lines) - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.docScroll > maxScroll {
+		m.docScroll = maxScroll
+	}
+
+	// Get visible lines
+	endIdx := m.docScroll + visibleHeight
+	if endIdx > len(lines) {
+		endIdx = len(lines)
+	}
+	visibleLines := lines[m.docScroll:endIdx]
+	content := strings.Join(visibleLines, "\n")
+
+	// Build header
+	header := styles.Header.Render(" " + m.docTitle + " ")
+
+	// Build content pane
+	contentPane := lipgloss.NewStyle().
+		Width(m.width - 2).
+		Height(visibleHeight).
+		Render(content)
+
+	// Build help bar
+	help := styles.Help.Render("↑↓/jk: scroll • PgUp/PgDn: page • g: top • q/Esc/?: close")
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, contentPane, help)
 }
 
 // renderConfirmation renders the confirmation modal.
