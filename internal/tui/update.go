@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/open-cli-collective/cpm/internal/claude"
+	"github.com/sahilm/fuzzy"
 )
 
 // wheelScrollSpeed defines how many items to scroll per wheel event
@@ -576,27 +577,49 @@ func (m *Model) navigateFilterDown() {
 	}
 }
 
-// applyFilter updates filteredIdx based on filterText.
+// pluginSearchData implements fuzzy.Source for plugin searching.
+type pluginSearchData struct {
+	plugins []PluginState
+	indices []int // indices into original plugins slice (excluding group headers)
+}
+
+func (d pluginSearchData) String(i int) string {
+	p := d.plugins[d.indices[i]]
+	// Combine name, description, and ID for matching
+	return strings.ToLower(p.Name + " " + p.Description + " " + p.ID)
+}
+
+func (d pluginSearchData) Len() int {
+	return len(d.indices)
+}
+
+// applyFilter updates filteredIdx based on filterText using fuzzy matching.
 func (m *Model) applyFilter() {
 	if m.filter.text == "" {
 		m.filteredIdx = nil
 		return
 	}
 
-	filter := strings.ToLower(m.filter.text)
-	m.filteredIdx = nil
-
+	// Build search data (non-header plugins only)
+	data := pluginSearchData{plugins: m.plugins}
 	for i, p := range m.plugins {
-		if p.IsGroupHeader {
-			continue
+		if !p.IsGroupHeader {
+			data.indices = append(data.indices, i)
 		}
-		name := strings.ToLower(p.Name)
-		desc := strings.ToLower(p.Description)
-		id := strings.ToLower(p.ID)
+	}
 
-		if strings.Contains(name, filter) || strings.Contains(desc, filter) || strings.Contains(id, filter) {
-			m.filteredIdx = append(m.filteredIdx, i)
-		}
+	if len(data.indices) == 0 {
+		m.filteredIdx = nil
+		return
+	}
+
+	// Perform fuzzy search
+	matches := fuzzy.FindFrom(strings.ToLower(m.filter.text), data)
+
+	// Convert matches to original plugin indices (already sorted by score)
+	m.filteredIdx = make([]int, len(matches))
+	for i, match := range matches {
+		m.filteredIdx[i] = data.indices[match.Index]
 	}
 
 	m.listOffset = 0
