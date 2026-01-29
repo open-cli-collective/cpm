@@ -161,19 +161,16 @@ type ProgressState struct {
 // Model is the main application model.
 // Fields ordered for optimal memory alignment (pointers/slices first, bools last).
 type Model struct {
-	// Mode-specific state (larger sub-structs first)
-	progress ProgressState
-	main     MainState
-	filter   FilterState
-
-	// Core state
 	client      claude.Client
+	err         error
 	styles      Styles
+	workingDir  string
+	main        MainState
 	keys        KeyBindings
+	filter      FilterState
 	plugins     []PluginState
 	filteredIdx []int
-	err         error
-	workingDir  string
+	progress    ProgressState
 	mode        Mode
 	height      int
 	width       int
