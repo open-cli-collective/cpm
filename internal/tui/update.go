@@ -90,6 +90,12 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		if plugin != nil {
 			m.clearPending(plugin.ID)
 		}
+	case matchesKey(msg, keys.BulkToggle):
+		m.toggleBulkSelection()
+	case matchesKey(msg, keys.BulkAll):
+		m.selectAllPlugins()
+	case matchesKey(msg, keys.BulkNone):
+		m.deselectAllPlugins()
 	}
 }
 
@@ -244,26 +250,32 @@ func (m *Model) ensureVisible() {
 	}
 }
 
-// selectForInstall marks the selected plugin for installation at the given scope.
+// selectForInstall marks the selected plugin(s) for installation at the given scope.
 func (m *Model) selectForInstall(scope claude.Scope) {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
+	plugins := m.getSelectedPlugins()
+	if len(plugins) == 0 {
 		return
 	}
 
-	// If already pending for the same scope, clear it (toggle off)
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
-		if existingOp.Type == OpInstall && existingOp.Scope == scope {
-			m.clearPending(plugin.ID)
-			return
+	for _, plugin := range plugins {
+		if plugin.IsGroupHeader {
+			continue
 		}
-	}
 
-	// Create install operation
-	m.pendingOps[plugin.ID] = Operation{
-		PluginID: plugin.ID,
-		Scope:    scope,
-		Type:     OpInstall,
+		// If already pending for the same scope, clear it (toggle off)
+		if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+			if existingOp.Type == OpInstall && existingOp.Scope == scope {
+				m.clearPending(plugin.ID)
+				continue
+			}
+		}
+
+		// Create install operation
+		m.pendingOps[plugin.ID] = Operation{
+			PluginID: plugin.ID,
+			Scope:    scope,
+			Type:     OpInstall,
+		}
 	}
 }
 
@@ -325,27 +337,33 @@ func (m *Model) toggleScope() {
 	m.pendingOps[plugin.ID] = nextOp
 }
 
-// selectForUninstall marks the selected plugin for uninstallation.
+// selectForUninstall marks the selected plugin(s) for uninstallation.
 func (m *Model) selectForUninstall() {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
-		return // Can't uninstall if not installed or if group header
+	plugins := m.getSelectedPlugins()
+	if len(plugins) == 0 {
+		return
 	}
 
-	// If already pending uninstall, clear it (toggle off)
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
-		if existingOp.Type == OpUninstall {
-			m.clearPending(plugin.ID)
-			return
+	for _, plugin := range plugins {
+		if plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
+			continue // Can't uninstall if not installed or if group header
 		}
-	}
 
-	// Create uninstall operation
-	m.pendingOps[plugin.ID] = Operation{
-		PluginID:      plugin.ID,
-		Scope:         claude.ScopeNone,
-		OriginalScope: plugin.InstalledScope,
-		Type:          OpUninstall,
+		// If already pending uninstall, clear it (toggle off)
+		if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+			if existingOp.Type == OpUninstall {
+				m.clearPending(plugin.ID)
+				continue
+			}
+		}
+
+		// Create uninstall operation
+		m.pendingOps[plugin.ID] = Operation{
+			PluginID:      plugin.ID,
+			Scope:         claude.ScopeNone,
+			OriginalScope: plugin.InstalledScope,
+			Type:          OpUninstall,
+		}
 	}
 }
 
@@ -651,4 +669,51 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 			m.selectedIdx = actualIdx
 		}
 	}
+}
+
+// toggleBulkSelection toggles the selection state of the current plugin.
+func (m *Model) toggleBulkSelection() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	if m.bulkSelected[plugin.ID] {
+		delete(m.bulkSelected, plugin.ID)
+	} else {
+		m.bulkSelected[plugin.ID] = true
+	}
+}
+
+// selectAllPlugins selects all non-header plugins.
+func (m *Model) selectAllPlugins() {
+	for _, p := range m.plugins {
+		if !p.IsGroupHeader {
+			m.bulkSelected[p.ID] = true
+		}
+	}
+}
+
+// deselectAllPlugins clears all selections.
+func (m *Model) deselectAllPlugins() {
+	m.bulkSelected = make(map[string]bool)
+}
+
+// getSelectedPlugins returns all plugins that are bulk-selected.
+// If no plugins are bulk-selected, returns the currently highlighted plugin.
+func (m *Model) getSelectedPlugins() []PluginState {
+	if len(m.bulkSelected) == 0 {
+		if plugin := m.getSelectedPlugin(); plugin != nil && !plugin.IsGroupHeader {
+			return []PluginState{*plugin}
+		}
+		return nil
+	}
+
+	var selected []PluginState
+	for _, p := range m.plugins {
+		if m.bulkSelected[p.ID] {
+			selected = append(selected, p)
+		}
+	}
+	return selected
 }

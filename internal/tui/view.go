@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,7 +86,14 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 	// Build the line
 	var parts []string
 
-	// Selection indicator
+	// Bulk selection checkbox
+	if m.bulkSelected[plugin.ID] {
+		parts = append(parts, "[x]")
+	} else {
+		parts = append(parts, "[ ]")
+	}
+
+	// Cursor indicator
 	if selected {
 		parts = append(parts, ">")
 	} else {
@@ -341,10 +349,17 @@ func (m *Model) renderHelp(styles Styles) string {
 		mouseIndicator = "m: mouse on"
 	}
 
-	if len(m.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	// Show selection count if any
+	selectionInfo := ""
+	if len(m.bulkSelected) > 0 {
+		selectionInfo = fmt.Sprintf(" • %d selected", len(m.bulkSelected))
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+
+	baseHelp := "↑↓: navigate • Space: select • a/A: all/none • l/p/u: install/uninstall • Tab: toggle"
+	if len(m.pendingOps) > 0 {
+		return styles.Help.Render(baseHelp + " • Enter: apply • Esc: clear • /: filter • " + mouseIndicator + selectionInfo + " • q: quit")
+	}
+	return styles.Help.Render(baseHelp + " • /: filter • " + mouseIndicator + selectionInfo + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
