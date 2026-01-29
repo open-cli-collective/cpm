@@ -25,6 +25,7 @@ type KeyBindings struct {
 	Filter    []string
 	Refresh   []string
 	Mouse     []string
+	Config    []string // Open plugin config viewer
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -47,6 +48,7 @@ func DefaultKeyBindings() KeyBindings {
 		Filter:    []string{"/"},
 		Refresh:   []string{"r"},
 		Mouse:     []string{"m"},
+		Config:    []string{"c"},
 	}
 }
 
