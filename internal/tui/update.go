@@ -958,43 +958,57 @@ func (m *Model) openReadme() {
 func (m *Model) updateReadme(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		keys := m.keys
-		switch {
-		case matchesKey(msg, keys.Escape), matchesKey(msg, keys.Quit), msg.String() == "?":
-			m.mode = ModeMain
-			m.readme.content = ""
-			m.readme.title = ""
-			m.readme.scroll = 0
-		case matchesKey(msg, keys.Up), msg.String() == "k":
-			if m.readme.scroll > 0 {
-				m.readme.scroll--
-			}
-		case matchesKey(msg, keys.Down), msg.String() == "j":
-			m.readme.scroll++
-		case matchesKey(msg, keys.PageUp):
-			m.readme.scroll -= 10
-			if m.readme.scroll < 0 {
-				m.readme.scroll = 0
-			}
-		case matchesKey(msg, keys.PageDown):
-			m.readme.scroll += 10
-		case matchesKey(msg, keys.Home):
-			m.readme.scroll = 0
-		}
+		m.handleReadmeKeyInput(msg)
 	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress {
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				if m.readme.scroll > 0 {
-					m.readme.scroll -= wheelScrollSpeed
-					if m.readme.scroll < 0 {
-						m.readme.scroll = 0
-					}
-				}
-			case tea.MouseButtonWheelDown:
-				m.readme.scroll += wheelScrollSpeed
-			}
-		}
+		m.handleReadmeMouseInput(msg)
 	}
 	return m, nil
+}
+
+// handleReadmeKeyInput processes keyboard input in README view mode.
+func (m *Model) handleReadmeKeyInput(msg tea.KeyMsg) {
+	keys := m.keys
+	switch {
+	case matchesKey(msg, keys.Escape), matchesKey(msg, keys.Quit), msg.String() == "?":
+		m.closeReadmeView()
+	case matchesKey(msg, keys.Up), msg.String() == "k":
+		if m.readme.scroll > 0 {
+			m.readme.scroll--
+		}
+	case matchesKey(msg, keys.Down), msg.String() == "j":
+		m.readme.scroll++
+	case matchesKey(msg, keys.PageUp):
+		m.readme.scroll -= 10
+		if m.readme.scroll < 0 {
+			m.readme.scroll = 0
+		}
+	case matchesKey(msg, keys.PageDown):
+		m.readme.scroll += 10
+	case matchesKey(msg, keys.Home):
+		m.readme.scroll = 0
+	}
+}
+
+// handleReadmeMouseInput processes mouse input in README view mode.
+func (m *Model) handleReadmeMouseInput(msg tea.MouseMsg) {
+	if msg.Action != tea.MouseActionPress {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.readme.scroll -= wheelScrollSpeed
+		if m.readme.scroll < 0 {
+			m.readme.scroll = 0
+		}
+	case tea.MouseButtonWheelDown:
+		m.readme.scroll += wheelScrollSpeed
+	}
+}
+
+// closeReadmeView exits README view and returns to main view.
+func (m *Model) closeReadmeView() {
+	m.mode = ModeMain
+	m.readme.content = ""
+	m.readme.title = ""
+	m.readme.scroll = 0
 }
