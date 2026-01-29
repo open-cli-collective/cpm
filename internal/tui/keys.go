@@ -8,26 +8,26 @@ import (
 
 // KeyBindings defines all keyboard shortcuts.
 type KeyBindings struct {
-	Up          []string
-	Down        []string
-	PageUp      []string
-	PageDown    []string
-	Home        []string
-	End         []string
-	Enter       []string
-	Quit        []string
-	Local       []string
-	Project     []string
-	Toggle      []string
-	Uninstall   []string
-	Enable      []string // Toggle plugin enabled/disabled state
-	Escape      []string
-	Filter      []string
-	Refresh     []string
-	Mouse       []string
-	BulkToggle  []string // Toggle bulk selection on current plugin
-	BulkAll     []string // Select all plugins
-	BulkNone    []string // Deselect all plugins
+	Up         []string
+	Down       []string
+	PageUp     []string
+	PageDown   []string
+	Home       []string
+	End        []string
+	Enter      []string
+	Quit       []string
+	Local      []string
+	Project    []string
+	Toggle     []string
+	Uninstall  []string
+	Enable     []string // Toggle plugin enabled/disabled state
+	Escape     []string
+	Filter     []string
+	Refresh    []string
+	Mouse      []string
+	BulkToggle []string // Toggle bulk selection on current plugin
+	BulkAll    []string // Select all plugins
+	BulkNone   []string // Deselect all plugins
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -50,9 +50,9 @@ func DefaultKeyBindings() KeyBindings {
 		Filter:     []string{"/"},
 		Refresh:    []string{"r"},
 		Mouse:      []string{"m"},
-		BulkToggle: []string{" "},       // Space to toggle selection
-		BulkAll:    []string{"a"},       // Select all
-		BulkNone:   []string{"A"},       // Deselect all (shift+a)
+		BulkToggle: []string{" "}, // Space to toggle selection
+		BulkAll:    []string{"a"}, // Select all
+		BulkNone:   []string{"A"}, // Deselect all (shift+a)
 	}
 }
 
