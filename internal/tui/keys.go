@@ -20,6 +20,7 @@ type KeyBindings struct {
 	Project    []string
 	Toggle     []string
 	Uninstall  []string
+	Update     []string // Update plugin to latest version
 	Enable     []string // Toggle plugin enabled/disabled state
 	Escape     []string
 	Filter     []string
@@ -49,6 +50,7 @@ func DefaultKeyBindings() KeyBindings {
 		Project:    []string{"p"},
 		Toggle:     []string{"tab"},
 		Uninstall:  []string{"u"},
+		Update:     []string{"U"}, // Shift+u for update
 		Enable:     []string{"e"},
 		Escape:     []string{"esc"},
 		Filter:     []string{"/"},

@@ -133,6 +133,8 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 			return styles.Pending.Render("[→ UNINSTALL]")
 		case OpMigrate:
 			return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
+		case OpUpdate:
+			return styles.Pending.Render("[→ UPDATE]")
 		case OpEnable:
 			return styles.Pending.Render("[→ ENABLED]")
 		case OpDisable:
@@ -159,16 +161,24 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	}
 
 	// Apply style based on scope
+	var result string
 	switch plugin.InstalledScope {
 	case claude.ScopeLocal:
-		return styles.ScopeLocal.Render("[" + scopeText + "]")
+		result = styles.ScopeLocal.Render("[" + scopeText + "]")
 	case claude.ScopeProject:
-		return styles.ScopeProject.Render("[" + scopeText + "]")
+		result = styles.ScopeProject.Render("[" + scopeText + "]")
 	case claude.ScopeUser:
-		return styles.ScopeUser.Render("[" + scopeText + "]")
+		result = styles.ScopeUser.Render("[" + scopeText + "]")
 	default:
 		return ""
 	}
+
+	// Append update indicator if available
+	if plugin.HasUpdate {
+		result += styles.Pending.Render(" ↑")
+	}
+
+	return result
 }
 
 // renderDetails renders the right pane with plugin details.
@@ -224,8 +234,12 @@ func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
 
 	// Version
 	if plugin.Version != "" {
+		versionStr := plugin.Version
+		if plugin.HasUpdate && plugin.AvailableVersion != "" {
+			versionStr += " → " + plugin.AvailableVersion + " available"
+		}
 		lines = append(lines, styles.DetailLabel.Render("Version: ")+
-			styles.DetailValue.Render(plugin.Version))
+			styles.DetailValue.Render(versionStr))
 	}
 
 	// Author
@@ -287,6 +301,8 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 		pendingStr = "Will be uninstalled"
 	case OpMigrate:
 		pendingStr = "Will be moved from " + string(op.OriginalScope) + " to " + string(op.Scope)
+	case OpUpdate:
+		pendingStr = "Will be updated"
 	case OpEnable:
 		pendingStr = "Will be enabled"
 	case OpDisable:
@@ -375,7 +391,7 @@ func (m *Model) renderHelp(styles Styles) string {
 		selectionInfo = fmt.Sprintf(" • %d selected", len(m.main.bulkSelected))
 	}
 
-	baseHelp := "↑↓: navigate • Space: select • a/A: all/none • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • c: config"
+	baseHelp := "↑↓: navigate • Space: select • a/A: all/none • l/p/u/U: install/uninstall/update • Tab: toggle • " + sortInfo + " • c: config"
 	if len(m.main.pendingOps) > 0 {
 		return styles.Help.Render(baseHelp + " • Enter: apply • Esc: clear • /: filter • ?: readme • C: changelog • " + mouseIndicator + selectionInfo + " • q: quit")
 	}
@@ -438,6 +454,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	installs := 0
 	uninstalls := 0
 	migrations := 0
+	updates := 0
 	enables := 0
 	disables := 0
 
@@ -448,14 +465,15 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 
 	// Sort operations by type for consistent display
-	// Uninstalls, then migrations, then installs, then enables, then disables
+	// Uninstalls, then migrations, then updates, then installs, then enables, then disables
 	sort.Slice(operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
 			OpMigrate:   1,
-			OpInstall:   2,
-			OpEnable:    3,
-			OpDisable:   4,
+			OpUpdate:    2,
+			OpInstall:   3,
+			OpEnable:    4,
+			OpDisable:   5,
 		}
 		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
 	})
@@ -472,6 +490,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 		case OpMigrate:
 			action = styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
 			migrations++
+		case OpUpdate:
+			action = styles.ScopeProject.Render("Update: ") + op.PluginID
+			updates++
 		case OpEnable:
 			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
 			enables++
@@ -494,6 +515,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 	if migrations > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(migrations)+" migration(s)")
+	}
+	if updates > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(updates)+" update(s)")
 	}
 	if enables > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
@@ -555,6 +579,9 @@ func (m *Model) renderProgress(styles Styles) string {
 		case OpMigrate:
 			action = "Move"
 			scopeStr = " (" + string(op.OriginalScope) + " → " + string(op.Scope) + ")"
+		case OpUpdate:
+			action = "Update"
+			scopeStr = ""
 		case OpEnable:
 			action = "Enable"
 			scopeStr = ""
