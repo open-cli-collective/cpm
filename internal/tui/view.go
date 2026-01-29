@@ -342,9 +342,9 @@ func (m *Model) renderHelp(styles Styles) string {
 	}
 
 	if len(m.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • c: config • Enter: apply • Esc: clear • /: filter • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • c: config • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
@@ -601,4 +601,50 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 		Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// renderConfig renders the config viewer.
+func (m *Model) renderConfig(styles Styles) string {
+	// Header
+	header := styles.Header.Render(" " + m.configTitle + " ")
+
+	// Content area
+	contentHeight := m.height - 4 // Account for header and help bar
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Split content into lines and apply scroll
+	lines := strings.Split(m.configContent, "\n")
+	startLine := m.configScroll
+	if startLine >= len(lines) {
+		startLine = len(lines) - 1
+		if startLine < 0 {
+			startLine = 0
+		}
+	}
+	endLine := startLine + contentHeight
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+
+	visibleLines := lines[startLine:endLine]
+	content := strings.Join(visibleLines, "\n")
+
+	// Apply style to content
+	contentStyle := lipgloss.NewStyle().
+		Width(m.width-4).
+		Height(contentHeight).
+		Padding(1, 2)
+
+	contentBox := contentStyle.Render(content)
+
+	// Help bar
+	scrollInfo := ""
+	if len(lines) > contentHeight {
+		scrollInfo = " (" + strconv.Itoa(startLine+1) + "-" + strconv.Itoa(endLine) + "/" + strconv.Itoa(len(lines)) + ")"
+	}
+	help := styles.Help.Render("↑↓/PgUp/PgDn: scroll • c/Esc: close" + scrollInfo + " • q: quit")
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, contentBox, help)
 }
