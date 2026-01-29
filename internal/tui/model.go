@@ -163,11 +163,17 @@ type Model struct {
 }
 
 // NewModel creates a new Model with the given client and working directory.
+// Uses auto-detected theme.
 func NewModel(client claude.Client, workingDir string) *Model {
+	return NewModelWithTheme(client, workingDir, ThemeAuto)
+}
+
+// NewModelWithTheme creates a new Model with the specified theme.
+func NewModelWithTheme(client claude.Client, workingDir string, theme Theme) *Model {
 	return &Model{
 		client:       client,
 		workingDir:   workingDir,
-		styles:       DefaultStyles(),
+		styles:       DefaultStylesWithTheme(theme),
 		keys:         DefaultKeyBindings(),
 		pendingOps:   make(map[string]Operation),
 		loading:      true,
