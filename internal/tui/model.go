@@ -31,6 +31,36 @@ const (
 	ModeSummary
 )
 
+// SortMode represents the current sort order for the plugin list.
+type SortMode int
+
+const (
+	// SortByNameAsc sorts plugins by name A-Z (default).
+	SortByNameAsc SortMode = iota
+	// SortByNameDesc sorts plugins by name Z-A.
+	SortByNameDesc
+	// SortByScope sorts plugins by scope (installed first).
+	SortByScope
+	// SortByMarketplace sorts plugins by marketplace name.
+	SortByMarketplace
+)
+
+// String returns the display name for the sort mode.
+func (s SortMode) String() string {
+	switch s {
+	case SortByNameAsc:
+		return "Name A-Z"
+	case SortByNameDesc:
+		return "Name Z-A"
+	case SortByScope:
+		return "Scope"
+	case SortByMarketplace:
+		return "Marketplace"
+	default:
+		return "Unknown"
+	}
+}
+
 // PluginState holds the display state for a plugin.
 // Fields are ordered for optimal memory alignment (strings/pointers first, bools last).
 type PluginState struct {
@@ -151,6 +181,7 @@ type Model struct {
 	operations      []Operation
 	selectedIdx     int
 	mode            Mode
+	sortMode        SortMode
 	currentOpIdx    int
 	height          int
 	width           int
