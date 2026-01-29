@@ -81,6 +81,8 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall),
 		matchesKey(msg, keys.Enable):
 		m.handleOperationKeys(msg, keys)
+	case matchesKey(msg, keys.Sort):
+		m.cycleSortMode()
 	case matchesKey(msg, keys.Enter):
 		if len(m.main.pendingOps) > 0 {
 			m.main.showConfirm = true
@@ -651,4 +653,181 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 			m.selectedIdx = actualIdx
 		}
 	}
+}
+
+// cycleSortMode cycles through the available sort modes and applies sorting.
+func (m *Model) cycleSortMode() {
+	// Cycle: NameAsc -> NameDesc -> Scope -> Marketplace -> NameAsc
+	switch m.main.sortMode {
+	case SortByNameAsc:
+		m.main.sortMode = SortByNameDesc
+	case SortByNameDesc:
+		m.main.sortMode = SortByScope
+	case SortByScope:
+		m.main.sortMode = SortByMarketplace
+	case SortByMarketplace:
+		m.main.sortMode = SortByNameAsc
+	default:
+		m.main.sortMode = SortByNameAsc
+	}
+	m.sortPlugins()
+}
+
+// sortPlugins sorts the plugin list according to the current sort mode.
+func (m *Model) sortPlugins() {
+	// Remember current selection
+	var selectedID string
+	if m.selectedIdx >= 0 && m.selectedIdx < len(m.plugins) && !m.plugins[m.selectedIdx].IsGroupHeader {
+		selectedID = m.plugins[m.selectedIdx].ID
+	}
+
+	// Sort plugins (excluding group headers for now - we'll rebuild those)
+	var plugins []PluginState
+	for _, p := range m.plugins {
+		if !p.IsGroupHeader {
+			plugins = append(plugins, p)
+		}
+	}
+
+	switch m.main.sortMode {
+	case SortByNameAsc:
+		sort.Slice(plugins, func(i, j int) bool {
+			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		})
+	case SortByNameDesc:
+		sort.Slice(plugins, func(i, j int) bool {
+			return strings.ToLower(plugins[i].Name) > strings.ToLower(plugins[j].Name)
+		})
+	case SortByScope:
+		// Sort by scope: installed (local, project, user) first, then not installed
+		sort.Slice(plugins, func(i, j int) bool {
+			scopeOrder := map[claude.Scope]int{
+				claude.ScopeLocal:   0,
+				claude.ScopeProject: 1,
+				claude.ScopeUser:    2,
+				claude.ScopeNone:    3,
+			}
+			orderI := scopeOrder[plugins[i].InstalledScope]
+			orderJ := scopeOrder[plugins[j].InstalledScope]
+			if orderI != orderJ {
+				return orderI < orderJ
+			}
+			// Within same scope, sort by name
+			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		})
+	case SortByMarketplace:
+		sort.Slice(plugins, func(i, j int) bool {
+			if plugins[i].Marketplace != plugins[j].Marketplace {
+				return plugins[i].Marketplace < plugins[j].Marketplace
+			}
+			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		})
+	}
+
+	// Rebuild plugin list with group headers
+	m.plugins = rebuildWithGroupHeaders(plugins, m.main.sortMode)
+
+	// Restore selection
+	if selectedID != "" {
+		for i, p := range m.plugins {
+			if p.ID == selectedID {
+				m.selectedIdx = i
+				m.ensureVisible()
+				return
+			}
+		}
+	}
+
+	// If selection not found, select first non-header
+	for i, p := range m.plugins {
+		if !p.IsGroupHeader {
+			m.selectedIdx = i
+			break
+		}
+	}
+	m.listOffset = 0
+}
+
+// rebuildWithGroupHeaders rebuilds the plugin list with group headers based on sort mode.
+func rebuildWithGroupHeaders(plugins []PluginState, sortMode SortMode) []PluginState {
+	var result []PluginState
+
+	switch sortMode {
+	case SortByMarketplace:
+		// Group by marketplace
+		byGroup := make(map[string][]PluginState)
+		var groups []string
+		for _, p := range plugins {
+			group := p.Marketplace
+			if _, ok := byGroup[group]; !ok {
+				groups = append(groups, group)
+			}
+			byGroup[group] = append(byGroup[group], p)
+		}
+		for _, group := range groups {
+			result = append(result, PluginState{
+				Name:          group,
+				IsGroupHeader: true,
+				Marketplace:   group,
+			})
+			result = append(result, byGroup[group]...)
+		}
+
+	case SortByScope:
+		// Group by scope
+		scopeOrder := []claude.Scope{claude.ScopeLocal, claude.ScopeProject, claude.ScopeUser, claude.ScopeNone}
+		scopeNames := map[claude.Scope]string{
+			claude.ScopeLocal:   "Local",
+			claude.ScopeProject: "Project",
+			claude.ScopeUser:    "User",
+			claude.ScopeNone:    "Not Installed",
+		}
+		byScope := make(map[claude.Scope][]PluginState)
+		for _, p := range plugins {
+			byScope[p.InstalledScope] = append(byScope[p.InstalledScope], p)
+		}
+		for _, scope := range scopeOrder {
+			if len(byScope[scope]) > 0 {
+				result = append(result, PluginState{
+					Name:          scopeNames[scope],
+					IsGroupHeader: true,
+				})
+				result = append(result, byScope[scope]...)
+			}
+		}
+
+	default:
+		// For name sorts, group by marketplace to maintain structure
+		byGroup := make(map[string][]PluginState)
+		var groups []string
+		for _, p := range plugins {
+			group := p.Marketplace
+			if _, ok := byGroup[group]; !ok {
+				groups = append(groups, group)
+			}
+			byGroup[group] = append(byGroup[group], p)
+		}
+		sort.Strings(groups) // Sort groups alphabetically
+		for _, group := range groups {
+			result = append(result, PluginState{
+				Name:          group,
+				IsGroupHeader: true,
+				Marketplace:   group,
+			})
+			// Sort within group by current sort mode
+			groupPlugins := byGroup[group]
+			if sortMode == SortByNameDesc {
+				sort.Slice(groupPlugins, func(i, j int) bool {
+					return strings.ToLower(groupPlugins[i].Name) > strings.ToLower(groupPlugins[j].Name)
+				})
+			} else {
+				sort.Slice(groupPlugins, func(i, j int) bool {
+					return strings.ToLower(groupPlugins[i].Name) < strings.ToLower(groupPlugins[j].Name)
+				})
+			}
+			result = append(result, groupPlugins...)
+		}
+	}
+
+	return result
 }
