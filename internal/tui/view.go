@@ -489,7 +489,7 @@ func (m *Model) renderProgress(styles Styles) string {
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(styles.Palette.Primary).
 		Padding(1, 2).
 		Width(60).
 		Render(content)
@@ -536,7 +536,7 @@ func (m *Model) renderErrorSummary(styles Styles) string {
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(styles.Palette.Primary).
 		Padding(1, 2).
 		Width(60).
 		Render(content)
@@ -595,7 +595,7 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPending).
+		BorderForeground(styles.Palette.Pending).
 		Padding(1, 2).
 		Width(40).
 		Render(content)

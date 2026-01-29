@@ -72,21 +72,12 @@ func GetPalette(theme Theme) ColorPalette {
 	}
 }
 
-// Colors for the UI (kept for backward compatibility during transition).
-var (
-	colorPrimary   = lipgloss.Color("#7D56F4")
-	colorSecondary = lipgloss.Color("#5A4FCF")
-	colorText      = lipgloss.Color("#FAFAFA")
-	colorMuted     = lipgloss.Color("#626262")
-	colorLocal     = lipgloss.Color("#FF9F1C")
-	colorProject   = lipgloss.Color("#2EC4B6")
-	colorUser      = lipgloss.Color("#E71D36")
-	colorPending   = lipgloss.Color("#FFBF69")
-	colorBorder    = lipgloss.Color("#383838")
-)
 
 // Styles holds all the styles used in the TUI.
 type Styles struct {
+	// Palette holds the color palette for modal borders and other direct color usage
+	Palette ColorPalette
+
 	// Pane styles
 	LeftPane  lipgloss.Style
 	RightPane lipgloss.Style
@@ -128,6 +119,8 @@ func DefaultStylesWithTheme(theme Theme) Styles {
 	p := GetPalette(theme)
 
 	return Styles{
+		Palette: p,
+
 		LeftPane: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(p.Border).

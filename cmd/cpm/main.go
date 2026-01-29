@@ -38,40 +38,25 @@ func run() error {
 				os.Exit(1)
 			}
 			i++
-			switch strings.ToLower(os.Args[i]) {
-			case "auto":
-				theme = tui.ThemeAuto
-			case "light":
-				theme = tui.ThemeLight
-			case "dark":
-				theme = tui.ThemeDark
-			default:
+			var ok bool
+			theme, ok = parseTheme(os.Args[i])
+			if !ok {
 				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", os.Args[i])
 				os.Exit(1)
 			}
 		case strings.HasPrefix(arg, "--theme="):
 			val := strings.TrimPrefix(arg, "--theme=")
-			switch strings.ToLower(val) {
-			case "auto":
-				theme = tui.ThemeAuto
-			case "light":
-				theme = tui.ThemeLight
-			case "dark":
-				theme = tui.ThemeDark
-			default:
+			var ok bool
+			theme, ok = parseTheme(val)
+			if !ok {
 				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
 				os.Exit(1)
 			}
 		case strings.HasPrefix(arg, "-t="):
 			val := strings.TrimPrefix(arg, "-t=")
-			switch strings.ToLower(val) {
-			case "auto":
-				theme = tui.ThemeAuto
-			case "light":
-				theme = tui.ThemeLight
-			case "dark":
-				theme = tui.ThemeDark
-			default:
+			var ok bool
+			theme, ok = parseTheme(val)
+			if !ok {
 				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
 				os.Exit(1)
 			}
@@ -104,6 +89,20 @@ func run() error {
 	}
 
 	return nil
+}
+
+// parseTheme converts a theme string to a Theme constant.
+func parseTheme(s string) (tui.Theme, bool) {
+	switch strings.ToLower(s) {
+	case "auto":
+		return tui.ThemeAuto, true
+	case "light":
+		return tui.ThemeLight, true
+	case "dark":
+		return tui.ThemeDark, true
+	default:
+		return tui.ThemeAuto, false
+	}
 }
 
 func printUsage() {
