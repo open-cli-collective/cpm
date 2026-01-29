@@ -261,7 +261,8 @@ func readAndFormatJSON(path string) (string, error) {
 
 	// Parse and re-format for consistent pretty printing
 	var parsed any
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	err = json.Unmarshal(data, &parsed)
+	if err != nil {
 		return "", err
 	}
 
