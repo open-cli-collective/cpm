@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
@@ -73,6 +76,8 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 	switch {
 	case matchesKey(msg, keys.Filter):
 		m.handleFilterKey()
+	case matchesKey(msg, keys.Readme):
+		m.openReadme()
 	case matchesKey(msg, keys.Up), matchesKey(msg, keys.Down),
 		matchesKey(msg, keys.PageUp), matchesKey(msg, keys.PageDown),
 		matchesKey(msg, keys.Home), matchesKey(msg, keys.End):
@@ -651,4 +656,93 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 			m.selectedIdx = actualIdx
 		}
 	}
+}
+
+// openReadme loads and renders the README for the selected plugin.
+func (m *Model) openReadme() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.InstallPath == "" {
+		return
+	}
+
+	// Try to read README.md from the plugin's install path
+	readmePath := filepath.Join(plugin.InstallPath, "README.md")
+	content, err := os.ReadFile(readmePath)
+	if err != nil {
+		// Try lowercase
+		readmePath = filepath.Join(plugin.InstallPath, "readme.md")
+		content, err = os.ReadFile(readmePath)
+		if err != nil {
+			m.readmeContent = "No README found for this plugin."
+			m.readmeTitle = plugin.Name
+			m.readmeScroll = 0
+			m.mode = ModeReadme
+			return
+		}
+	}
+
+	// Render markdown with glamour
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(m.width-4),
+	)
+	if err != nil {
+		m.readmeContent = string(content)
+	} else {
+		rendered, err := renderer.Render(string(content))
+		if err != nil {
+			m.readmeContent = string(content)
+		} else {
+			m.readmeContent = rendered
+		}
+	}
+
+	m.readmeTitle = plugin.Name
+	m.readmeScroll = 0
+	m.mode = ModeReadme
+}
+
+// updateReadme handles input in README view mode.
+func (m *Model) updateReadme(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		keys := m.keys
+		switch {
+		case matchesKey(msg, keys.Escape), matchesKey(msg, keys.Quit), msg.String() == "?":
+			m.mode = ModeMain
+			m.readmeContent = ""
+			m.readmeTitle = ""
+			m.readmeScroll = 0
+		case matchesKey(msg, keys.Up), msg.String() == "k":
+			if m.readmeScroll > 0 {
+				m.readmeScroll--
+			}
+		case matchesKey(msg, keys.Down), msg.String() == "j":
+			m.readmeScroll++
+		case matchesKey(msg, keys.PageUp):
+			m.readmeScroll -= 10
+			if m.readmeScroll < 0 {
+				m.readmeScroll = 0
+			}
+		case matchesKey(msg, keys.PageDown):
+			m.readmeScroll += 10
+		case matchesKey(msg, keys.Home):
+			m.readmeScroll = 0
+		}
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				if m.readmeScroll > 0 {
+					m.readmeScroll -= wheelScrollSpeed
+					if m.readmeScroll < 0 {
+						m.readmeScroll = 0
+					}
+				}
+			case tea.MouseButtonWheelDown:
+				m.readmeScroll += wheelScrollSpeed
+			}
+		}
+	}
+	return m, nil
 }

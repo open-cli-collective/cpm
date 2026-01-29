@@ -29,6 +29,8 @@ const (
 	ModeProgress
 	// ModeSummary shows completion summary (both successes and errors).
 	ModeSummary
+	// ModeReadme shows the plugin README.
+	ModeReadme
 )
 
 // PluginState holds the display state for a plugin.
@@ -144,6 +146,8 @@ type Model struct {
 	pendingOps      map[string]Operation
 	workingDir      string
 	filterText      string
+	readmeContent   string // Rendered README content
+	readmeTitle     string // Plugin name for README header
 	keys            KeyBindings
 	plugins         []PluginState
 	filteredIdx     []int
@@ -155,6 +159,7 @@ type Model struct {
 	height          int
 	width           int
 	listOffset      int
+	readmeScroll    int // Scroll position for README view
 	loading         bool
 	showConfirm     bool
 	filterActive    bool
@@ -397,6 +402,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProgress(msg)
 	case ModeSummary:
 		return m.updateError(msg)
+	case ModeReadme:
+		return m.updateReadme(msg)
 	}
 
 	return m, nil
@@ -427,6 +434,8 @@ func (m *Model) View() string {
 		return m.renderProgress(m.styles)
 	case ModeSummary:
 		return m.renderErrorSummary(m.styles)
+	case ModeReadme:
+		return m.renderReadme(m.styles)
 	}
 
 	return ""
