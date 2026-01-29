@@ -57,12 +57,23 @@ func (c *realClient) ListPlugins(includeAvailable bool) (*PluginList, error) {
 		return nil, fmt.Errorf("claude plugin list failed: %w: %s", err, stderr.String())
 	}
 
-	var list PluginList
-	if err := json.Unmarshal(stdout.Bytes(), &list); err != nil {
-		return nil, fmt.Errorf("failed to parse plugin list: %w", err)
+	// Response format differs based on --available flag:
+	// - With --available: {"installed": [...], "available": [...]}
+	// - Without --available: [...] (just installed plugins array)
+	if includeAvailable {
+		var list PluginList
+		if err := json.Unmarshal(stdout.Bytes(), &list); err != nil {
+			return nil, fmt.Errorf("failed to parse plugin list: %w", err)
+		}
+		return &list, nil
 	}
 
-	return &list, nil
+	// Parse as array of installed plugins
+	var installed []InstalledPlugin
+	if err := json.Unmarshal(stdout.Bytes(), &installed); err != nil {
+		return nil, fmt.Errorf("failed to parse plugin list: %w", err)
+	}
+	return &PluginList{Installed: installed}, nil
 }
 
 // InstallPlugin implements Client.InstallPlugin.
