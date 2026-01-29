@@ -72,12 +72,9 @@ func GetPalette(theme Theme) ColorPalette {
 	}
 }
 
-
 // Styles holds all the styles used in the TUI.
+// Fields ordered for optimal memory alignment.
 type Styles struct {
-	// Palette holds the color palette for modal borders and other direct color usage
-	Palette ColorPalette
-
 	// Pane styles
 	LeftPane  lipgloss.Style
 	RightPane lipgloss.Style
@@ -107,6 +104,9 @@ type Styles struct {
 
 	// Footer/help
 	Help lipgloss.Style
+
+	// Palette holds colors for modal borders and other direct color usage
+	Palette ColorPalette
 }
 
 // DefaultStyles returns the default styles with auto-detected theme.

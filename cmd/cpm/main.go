@@ -20,51 +20,9 @@ func main() {
 }
 
 func run() error {
-	theme := tui.ThemeAuto
-
-	// Handle flags
-	for i := 1; i < len(os.Args); i++ {
-		arg := os.Args[i]
-		switch {
-		case arg == "--version" || arg == "-v":
-			fmt.Println(version.String())
-			return nil
-		case arg == "--help" || arg == "-h":
-			printUsage()
-			return nil
-		case arg == "--theme" || arg == "-t":
-			if i+1 >= len(os.Args) {
-				fmt.Fprintln(os.Stderr, "Error: --theme requires an argument (auto, light, dark)")
-				os.Exit(1)
-			}
-			i++
-			var ok bool
-			theme, ok = parseTheme(os.Args[i])
-			if !ok {
-				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", os.Args[i])
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "--theme="):
-			val := strings.TrimPrefix(arg, "--theme=")
-			var ok bool
-			theme, ok = parseTheme(val)
-			if !ok {
-				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "-t="):
-			val := strings.TrimPrefix(arg, "-t=")
-			var ok bool
-			theme, ok = parseTheme(val)
-			if !ok {
-				fmt.Fprintf(os.Stderr, "Error: invalid theme '%s'. Use: auto, light, dark\n", val)
-				os.Exit(1)
-			}
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown option: %s\n\n", arg)
-			printUsage()
-			os.Exit(1)
-		}
+	theme, done := parseFlags()
+	if done {
+		return nil
 	}
 
 	// Check for claude CLI
@@ -91,6 +49,49 @@ func run() error {
 	return nil
 }
 
+// parseFlags parses command-line flags and returns the theme setting.
+// Returns done=true if the program should exit (e.g., after --help or --version).
+func parseFlags() (theme tui.Theme, done bool) {
+	theme = tui.ThemeAuto
+
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch {
+		case arg == "--version" || arg == "-v":
+			fmt.Println(version.String())
+			return theme, true
+		case arg == "--help" || arg == "-h":
+			printUsage()
+			return theme, true
+		case arg == "--theme" || arg == "-t":
+			if i+1 >= len(os.Args) {
+				exitWithError("--theme requires an argument (auto, light, dark)")
+			}
+			i++
+			theme = parseThemeOrExit(os.Args[i])
+		case strings.HasPrefix(arg, "--theme="):
+			theme = parseThemeOrExit(strings.TrimPrefix(arg, "--theme="))
+		case strings.HasPrefix(arg, "-t="):
+			theme = parseThemeOrExit(strings.TrimPrefix(arg, "-t="))
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown option: %s\n\n", arg)
+			printUsage()
+			os.Exit(1)
+		}
+	}
+
+	return theme, false
+}
+
+// parseThemeOrExit parses a theme string, exiting on error.
+func parseThemeOrExit(s string) tui.Theme {
+	theme, ok := parseTheme(s)
+	if !ok {
+		exitWithError(fmt.Sprintf("invalid theme '%s'. Use: auto, light, dark", s))
+	}
+	return theme
+}
+
 // parseTheme converts a theme string to a Theme constant.
 func parseTheme(s string) (tui.Theme, bool) {
 	switch strings.ToLower(s) {
@@ -103,6 +104,12 @@ func parseTheme(s string) (tui.Theme, bool) {
 	default:
 		return tui.ThemeAuto, false
 	}
+}
+
+// exitWithError prints an error message and exits.
+func exitWithError(msg string) {
+	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
+	os.Exit(1)
 }
 
 func printUsage() {
