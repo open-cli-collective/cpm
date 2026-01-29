@@ -25,6 +25,7 @@ type KeyBindings struct {
 	Filter    []string
 	Refresh   []string
 	Mouse     []string
+	Sort      []string // Cycle through sort options
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -47,6 +48,7 @@ func DefaultKeyBindings() KeyBindings {
 		Filter:    []string{"/"},
 		Refresh:   []string{"r"},
 		Mouse:     []string{"m"},
+		Sort:      []string{"s"},
 	}
 }
 
