@@ -142,6 +142,7 @@ type Model struct {
 	err             error
 	client          claude.Client
 	pendingOps      map[string]Operation
+	bulkSelected    map[string]bool // Tracks plugins selected for bulk operations
 	workingDir      string
 	filterText      string
 	keys            KeyBindings
@@ -176,6 +177,7 @@ func NewModelWithTheme(client claude.Client, workingDir string, theme Theme) *Mo
 		styles:       DefaultStylesWithTheme(theme),
 		keys:         DefaultKeyBindings(),
 		pendingOps:   make(map[string]Operation),
+		bulkSelected: make(map[string]bool),
 		loading:      true,
 		mouseEnabled: true,
 	}
