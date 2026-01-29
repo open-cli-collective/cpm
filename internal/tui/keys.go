@@ -58,9 +58,9 @@ func DefaultKeyBindings() KeyBindings {
 		Readme:     []string{"?"},
 		Changelog:  []string{"C"},
 		Config:     []string{"c"},
-		BulkToggle: []string{" "},  // Space to toggle selection
-		BulkAll:    []string{"a"},  // Select all
-		BulkNone:   []string{"A"},  // Deselect all (shift+a)
+		BulkToggle: []string{" "}, // Space to toggle selection
+		BulkAll:    []string{"a"}, // Select all
+		BulkNone:   []string{"A"}, // Deselect all (shift+a)
 	}
 }
 
