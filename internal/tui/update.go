@@ -122,6 +122,8 @@ func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
 		m.toggleScope()
 	case matchesKey(msg, keys.Uninstall):
 		m.selectForUninstall()
+	case matchesKey(msg, keys.Update):
+		m.selectForUpdate()
 	case matchesKey(msg, keys.Enable):
 		m.toggleEnablement()
 	}
@@ -349,6 +351,35 @@ func (m *Model) selectForUninstall() {
 	}
 }
 
+// selectForUpdate marks the selected plugin for update.
+func (m *Model) selectForUpdate() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	// Can only update installed plugins that have updates available
+	if plugin.InstalledScope == claude.ScopeNone || !plugin.HasUpdate {
+		return
+	}
+
+	// If already pending update, clear it (toggle off)
+	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+		if existingOp.Type == OpUpdate {
+			m.clearPending(plugin.ID)
+			return
+		}
+	}
+
+	// Create update operation (will reinstall at same scope)
+	m.pendingOps[plugin.ID] = Operation{
+		PluginID:      plugin.ID,
+		Scope:         plugin.InstalledScope,
+		OriginalScope: plugin.InstalledScope,
+		Type:          OpUpdate,
+	}
+}
+
 // clearPending clears the pending change for the selected plugin.
 func (m *Model) clearPending(pluginID string) {
 	delete(m.pendingOps, pluginID)
@@ -386,13 +417,14 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		m.operations = append(m.operations, op)
 	}
 
-	// Sort operations: uninstalls first, then installs, then enable/disable
+	// Sort operations: uninstalls first, then updates, then installs, then enable/disable
 	sort.Slice(m.operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
-			OpInstall:   1,
-			OpEnable:    2,
-			OpDisable:   3,
+			OpUpdate:    1,
+			OpInstall:   2,
+			OpEnable:    3,
+			OpDisable:   4,
 		}
 		orderI := typeOrder[m.operations[i].Type]
 		orderJ := typeOrder[m.operations[j].Type]
@@ -425,6 +457,9 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
 			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+		case OpUpdate:
+			// Update is a reinstall at the same scope
+			err = m.client.InstallPlugin(op.PluginID, op.Scope)
 		case OpEnable:
 			err = m.client.EnablePlugin(op.PluginID, op.Scope)
 		case OpDisable:

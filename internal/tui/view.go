@@ -122,6 +122,8 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
 		case OpUninstall:
 			return styles.Pending.Render("[→ UNINSTALL]")
+		case OpUpdate:
+			return styles.Pending.Render("[→ UPDATE]")
 		case OpEnable:
 			return styles.Pending.Render("[→ ENABLED]")
 		case OpDisable:
@@ -148,16 +150,24 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	}
 
 	// Apply style based on scope
+	var result string
 	switch plugin.InstalledScope {
 	case claude.ScopeLocal:
-		return styles.ScopeLocal.Render("[" + scopeText + "]")
+		result = styles.ScopeLocal.Render("[" + scopeText + "]")
 	case claude.ScopeProject:
-		return styles.ScopeProject.Render("[" + scopeText + "]")
+		result = styles.ScopeProject.Render("[" + scopeText + "]")
 	case claude.ScopeUser:
-		return styles.ScopeUser.Render("[" + scopeText + "]")
+		result = styles.ScopeUser.Render("[" + scopeText + "]")
 	default:
 		return ""
 	}
+
+	// Append update indicator if available
+	if plugin.HasUpdate {
+		result += styles.Pending.Render(" ↑")
+	}
+
+	return result
 }
 
 // renderDetails renders the right pane with plugin details.
@@ -213,8 +223,12 @@ func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
 
 	// Version
 	if plugin.Version != "" {
+		versionStr := plugin.Version
+		if plugin.HasUpdate && plugin.AvailableVersion != "" {
+			versionStr += " → " + plugin.AvailableVersion + " available"
+		}
 		lines = append(lines, styles.DetailLabel.Render("Version: ")+
-			styles.DetailValue.Render(plugin.Version))
+			styles.DetailValue.Render(versionStr))
 	}
 
 	// Author
@@ -262,6 +276,8 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 		pendingStr = "Will be installed to " + string(op.Scope)
 	case OpUninstall:
 		pendingStr = "Will be uninstalled"
+	case OpUpdate:
+		pendingStr = "Will be updated"
 	case OpEnable:
 		pendingStr = "Will be enabled"
 	case OpDisable:
@@ -342,9 +358,9 @@ func (m *Model) renderHelp(styles Styles) string {
 	}
 
 	if len(m.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u/U: install/uninstall/update • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u/U: install/uninstall/update • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
@@ -360,6 +376,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	// Count operations by type
 	installs := 0
 	uninstalls := 0
+	updates := 0
 	enables := 0
 	disables := 0
 
@@ -370,13 +387,14 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 
 	// Sort operations by type for consistent display
-	// Uninstalls, then installs, then enables, then disables
+	// Uninstalls, then updates, then installs, then enables, then disables
 	sort.Slice(operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
-			OpInstall:   1,
-			OpEnable:    2,
-			OpDisable:   3,
+			OpUpdate:    1,
+			OpInstall:   2,
+			OpEnable:    3,
+			OpDisable:   4,
 		}
 		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
 	})
@@ -390,6 +408,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 		case OpUninstall:
 			action = styles.Pending.Render("Uninstall: ") + op.PluginID
 			uninstalls++
+		case OpUpdate:
+			action = styles.ScopeProject.Render("Update: ") + op.PluginID
+			updates++
 		case OpEnable:
 			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
 			enables++
@@ -409,6 +430,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 	if uninstalls > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(uninstalls)+" uninstall(s)")
+	}
+	if updates > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(updates)+" update(s)")
 	}
 	if enables > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
@@ -466,6 +490,9 @@ func (m *Model) renderProgress(styles Styles) string {
 			scopeStr = " (" + string(op.Scope) + ")"
 		case OpUninstall:
 			action = "Uninstall"
+			scopeStr = ""
+		case OpUpdate:
+			action = "Update"
 			scopeStr = ""
 		case OpEnable:
 			action = "Enable"

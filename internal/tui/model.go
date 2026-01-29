@@ -15,6 +15,7 @@ type OperationType int
 const (
 	OpInstall OperationType = iota
 	OpUninstall
+	OpUpdate
 	OpEnable
 	OpDisable
 )
@@ -34,20 +35,22 @@ const (
 // PluginState holds the display state for a plugin.
 // Fields are ordered for optimal memory alignment (strings/pointers first, bools last).
 type PluginState struct {
-	Components     *claude.PluginComponents
-	Version        string
-	Description    string
-	AuthorName     string
-	AuthorEmail    string
-	Marketplace    string
-	ID             string
-	InstallPath    string
-	ExternalURL    string
-	InstalledScope claude.Scope
-	Name           string
-	Enabled        bool
-	IsGroupHeader  bool
-	IsExternal     bool
+	Components       *claude.PluginComponents
+	Version          string // Installed version (or available version if not installed)
+	AvailableVersion string // Latest available version from marketplace
+	Description      string
+	AuthorName       string
+	AuthorEmail      string
+	Marketplace      string
+	ID               string
+	InstallPath      string
+	ExternalURL      string
+	InstalledScope   claude.Scope
+	Name             string
+	Enabled          bool
+	IsGroupHeader    bool
+	IsExternal       bool
+	HasUpdate        bool // True if installed version < available version
 }
 
 // PluginStateFromInstalled creates a PluginState from an installed plugin.
@@ -250,6 +253,7 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 	// Add available plugins (which includes installed ones)
 	for _, p := range list.Available {
 		state := PluginStateFromAvailable(p)
+		state.AvailableVersion = p.Version // Track available version
 
 		// Check if installed (in the filtered set)
 		if installed, ok := installedByID[p.PluginID]; ok {
@@ -258,6 +262,11 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 			state.Version = installed.Version
 			state.InstallPath = installed.InstallPath
 			seenInstalled[p.PluginID] = true
+
+			// Check if update is available
+			if p.Version != "" && installed.Version != "" && p.Version != installed.Version {
+				state.HasUpdate = true
+			}
 
 			// Read manifest for author and scan for components
 			if installed.InstallPath != "" {
