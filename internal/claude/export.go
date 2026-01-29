@@ -17,9 +17,10 @@ type ExportedPlugin struct {
 }
 
 // ExportFile represents the structure of a plugin export file.
+// Fields ordered for optimal memory alignment.
 type ExportFile struct {
-	Version int              `json:"version"`
 	Plugins []ExportedPlugin `json:"plugins"`
+	Version int              `json:"version"`
 }
 
 // ExportPlugins exports the list of installed plugins to a JSON file.
@@ -47,7 +48,7 @@ func ExportPlugins(client Client, filePath string) error {
 		return fmt.Errorf("failed to marshal export data: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write export file: %w", err)
 	}
 
