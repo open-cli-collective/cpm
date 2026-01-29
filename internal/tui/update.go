@@ -245,18 +245,31 @@ func (m *Model) ensureVisible() {
 }
 
 // selectForInstall marks the selected plugin for installation at the given scope.
+// If the plugin is already installed at a different scope, creates a migration operation.
 func (m *Model) selectForInstall(scope claude.Scope) {
 	plugin := m.getSelectedPlugin()
 	if plugin == nil || plugin.IsGroupHeader {
 		return
 	}
 
-	// If already pending for the same scope, clear it (toggle off)
+	// If already pending for the same scope/operation, clear it (toggle off)
 	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
-		if existingOp.Type == OpInstall && existingOp.Scope == scope {
+		if (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == scope {
 			m.clearPending(plugin.ID)
 			return
 		}
+	}
+
+	// Check if plugin is already installed at a different scope
+	if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
+		// Create migrate operation (move from current scope to new scope)
+		m.main.pendingOps[plugin.ID] = Operation{
+			PluginID:      plugin.ID,
+			Scope:         scope,
+			OriginalScope: plugin.InstalledScope,
+			Type:          OpMigrate,
+		}
+		return
 	}
 
 	// Create install operation
@@ -268,61 +281,67 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 }
 
 // toggleScope cycles through: none -> local -> project -> uninstall -> none
+// For installed plugins, this becomes: migrate to local -> migrate to project -> uninstall -> none
 func (m *Model) toggleScope() {
 	plugin := m.getSelectedPlugin()
 	if plugin == nil || plugin.IsGroupHeader {
 		return
 	}
 
-	// Determine next scope in cycle: None → Local → Project → Uninstall → None
-	var nextOp Operation
-
-	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
-		// Already has pending operation, cycle to next state
-		switch {
-		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeLocal:
-			// Local → Project
-			nextOp = Operation{
-				PluginID: plugin.ID,
-				Scope:    claude.ScopeProject,
-				Type:     OpInstall,
-			}
-		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeProject:
-			// Project → Uninstall (if installed)
-			if plugin.InstalledScope != claude.ScopeNone {
-				nextOp = Operation{
-					PluginID:      plugin.ID,
-					Scope:         claude.ScopeNone,
-					OriginalScope: plugin.InstalledScope,
-					Type:          OpUninstall,
-				}
-			} else {
-				// Not installed, go back to None
-				m.clearPending(plugin.ID)
-				return
-			}
-		case existingOp.Type == OpUninstall:
-			// Uninstall → None (clear)
-			m.clearPending(plugin.ID)
-			return
-		default:
-			// Default to Local
-			nextOp = Operation{
-				PluginID: plugin.ID,
-				Scope:    claude.ScopeLocal,
-				Type:     OpInstall,
-			}
-		}
-	} else {
-		// No pending operation, start with Local
-		nextOp = Operation{
-			PluginID: plugin.ID,
-			Scope:    claude.ScopeLocal,
-			Type:     OpInstall,
-		}
+	nextOp := m.computeNextToggleOp(plugin)
+	if nextOp == nil {
+		m.clearPending(plugin.ID)
+		return
 	}
 
-	m.main.pendingOps[plugin.ID] = nextOp
+	m.main.pendingOps[plugin.ID] = *nextOp
+}
+
+// computeNextToggleOp determines the next operation in the toggle cycle.
+// Returns nil if the operation should be cleared.
+func (m *Model) computeNextToggleOp(plugin *PluginState) *Operation {
+	existingOp, hasPending := m.main.pendingOps[plugin.ID]
+
+	if !hasPending {
+		return m.firstToggleOp(plugin, claude.ScopeLocal)
+	}
+
+	// Cycle based on current pending operation
+	switch {
+	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == claude.ScopeLocal:
+		return m.firstToggleOp(plugin, claude.ScopeProject)
+	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == claude.ScopeProject:
+		if plugin.InstalledScope != claude.ScopeNone {
+			return &Operation{
+				PluginID:      plugin.ID,
+				Scope:         claude.ScopeNone,
+				OriginalScope: plugin.InstalledScope,
+				Type:          OpUninstall,
+			}
+		}
+		return nil // Not installed, clear
+	case existingOp.Type == OpUninstall:
+		return nil // Clear
+	default:
+		return m.firstToggleOp(plugin, claude.ScopeLocal)
+	}
+}
+
+// firstToggleOp returns the appropriate operation for installing/migrating to a scope.
+func (m *Model) firstToggleOp(plugin *PluginState, scope claude.Scope) *Operation {
+	if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
+		return &Operation{
+			PluginID:      plugin.ID,
+			Scope:         scope,
+			OriginalScope: plugin.InstalledScope,
+			Type:          OpMigrate,
+		}
+	}
+	return &Operation{
+		PluginID: plugin.ID,
+		Scope:    scope,
+		Type:     OpInstall,
+	}
 }
 
 // selectForUninstall marks the selected plugin for uninstallation.
@@ -386,13 +405,14 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		m.progress.operations = append(m.progress.operations, op)
 	}
 
-	// Sort operations: uninstalls first, then installs, then enable/disable
+	// Sort operations: uninstalls first, then migrations, then installs, then enable/disable
 	sort.Slice(m.progress.operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
-			OpInstall:   1,
-			OpEnable:    2,
-			OpDisable:   3,
+			OpMigrate:   1,
+			OpInstall:   2,
+			OpEnable:    3,
+			OpDisable:   4,
 		}
 		orderI := typeOrder[m.progress.operations[i].Type]
 		orderJ := typeOrder[m.progress.operations[j].Type]
@@ -425,6 +445,12 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
 			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+		case OpMigrate:
+			// Migration = uninstall from old scope + install to new scope
+			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+			if err == nil {
+				err = m.client.InstallPlugin(op.PluginID, op.Scope)
+			}
 		case OpEnable:
 			err = m.client.EnablePlugin(op.PluginID, op.Scope)
 		case OpDisable:

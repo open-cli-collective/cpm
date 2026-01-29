@@ -257,10 +257,10 @@ func TestToggleScopeInstalledPlugin(t *testing.T) {
 		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
-	// Local pending -> Project pending
+	// Local pending -> Project pending (migrating since already installed at local)
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
-		t.Errorf("after second toggle = %v, want OpInstall with project", op)
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpMigrate || op.Scope != claude.ScopeProject {
+		t.Errorf("after second toggle = %v, want OpMigrate with project", op)
 	}
 }
 

@@ -15,6 +15,7 @@ type OperationType int
 const (
 	OpInstall OperationType = iota
 	OpUninstall
+	OpMigrate // Move plugin from one scope to another
 	OpEnable
 	OpDisable
 )
