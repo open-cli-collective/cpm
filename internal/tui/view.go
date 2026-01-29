@@ -28,7 +28,7 @@ func (m *Model) renderMainView() string {
 	help := m.renderHelp(styles)
 
 	// Add filter input if active
-	if m.filterActive {
+	if m.filter.active {
 		filter := m.renderFilterInput(styles)
 		return lipgloss.JoinVertical(lipgloss.Left, filter, main, help)
 	}
@@ -40,8 +40,8 @@ func (m *Model) renderMainView() string {
 func (m *Model) renderList(styles Styles) string {
 	plugins := m.getVisiblePlugins()
 	if len(plugins) == 0 {
-		if m.filterActive && m.filterText != "" {
-			return "No matches for: " + m.filterText
+		if m.filter.active && m.filter.text != "" {
+			return "No matches for: " + m.filter.text
 		}
 		return "No plugins found."
 	}
@@ -61,7 +61,7 @@ func (m *Model) renderList(styles Styles) string {
 		// When filtering, getActualIndex converts filtered index to original.
 		// When not filtering, i is already the actual index.
 		var isSelected bool
-		if m.filterActive && m.filterText != "" {
+		if m.filter.active && m.filter.text != "" {
 			// i is index into filtered list, need to get original index
 			if i < len(m.filteredIdx) {
 				isSelected = m.filteredIdx[i] == m.selectedIdx
@@ -116,7 +116,7 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 // getScopeIndicator returns the scope indicator for a plugin.
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
-	if op, ok := m.pendingOps[plugin.ID]; ok {
+	if op, ok := m.main.pendingOps[plugin.ID]; ok {
 		switch op.Type {
 		case OpInstall:
 			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
@@ -251,7 +251,7 @@ func (m *Model) getStatusText(plugin PluginState) string {
 
 // appendPendingChange appends pending change information if applicable.
 func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles Styles) []string {
-	op, ok := m.pendingOps[plugin.ID]
+	op, ok := m.main.pendingOps[plugin.ID]
 	if !ok {
 		return lines
 	}
@@ -331,17 +331,17 @@ func (m *Model) appendExternalNotice(lines []string, plugin PluginState, styles 
 
 // renderHelp renders the help bar at the bottom.
 func (m *Model) renderHelp(styles Styles) string {
-	if m.filterActive {
+	if m.filter.active {
 		return styles.Help.Render("Type to filter • Enter: select • Esc: cancel")
 	}
 
 	// Show mouse state indicator
 	mouseIndicator := "m: mouse off"
-	if m.mouseEnabled {
+	if m.main.mouseEnabled {
 		mouseIndicator = "m: mouse on"
 	}
 
-	if len(m.pendingOps) > 0 {
+	if len(m.main.pendingOps) > 0 {
 		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
 	}
 	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
@@ -349,7 +349,7 @@ func (m *Model) renderHelp(styles Styles) string {
 
 // renderConfirmation renders the confirmation modal.
 func (m *Model) renderConfirmation(styles Styles) string {
-	if len(m.pendingOps) == 0 {
+	if len(m.main.pendingOps) == 0 {
 		return ""
 	}
 
@@ -365,7 +365,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 
 	// Display operations grouped by type
 	var operations []Operation
-	for _, op := range m.pendingOps {
+	for _, op := range m.main.pendingOps {
 		operations = append(operations, op)
 	}
 
@@ -439,17 +439,17 @@ func (m *Model) renderProgress(styles Styles) string {
 	lines = append(lines, styles.Header.Render(" Applying Changes "))
 	lines = append(lines, "")
 
-	for i, op := range m.operations {
+	for i, op := range m.progress.operations {
 		var status string
 		switch {
-		case i < m.currentOpIdx:
+		case i < m.progress.currentIdx:
 			// Completed
-			if i < len(m.operationErrors) && m.operationErrors[i] != "" {
-				status = "✗ Failed: " + m.operationErrors[i]
+			if i < len(m.progress.errors) && m.progress.errors[i] != "" {
+				status = "✗ Failed: " + m.progress.errors[i]
 			} else {
 				status = "✓ Done"
 			}
-		case i == m.currentOpIdx:
+		case i == m.progress.currentIdx:
 			// In progress
 			status = "⟳ Running..."
 		default:
@@ -503,7 +503,7 @@ func (m *Model) renderErrorSummary(styles Styles) string {
 
 	// Count errors
 	errorCount := 0
-	for _, e := range m.operationErrors {
+	for _, e := range m.progress.errors {
 		if e != "" {
 			errorCount++
 		}
@@ -516,15 +516,15 @@ func (m *Model) renderErrorSummary(styles Styles) string {
 	}
 	lines = append(lines, "")
 
-	successCount := len(m.operations) - errorCount
+	successCount := len(m.progress.operations) - errorCount
 	lines = append(lines, styles.ScopeProject.Render(strconv.Itoa(successCount)+" succeeded"))
 	if errorCount > 0 {
 		lines = append(lines, styles.Pending.Render(strconv.Itoa(errorCount)+" failed"))
 		lines = append(lines, "")
 		lines = append(lines, styles.DetailLabel.Render("Errors:"))
-		for i, op := range m.operations {
-			if i < len(m.operationErrors) && m.operationErrors[i] != "" {
-				lines = append(lines, "  • "+op.PluginID+": "+m.operationErrors[i])
+		for i, op := range m.progress.operations {
+			if i < len(m.progress.errors) && m.progress.errors[i] != "" {
+				lines = append(lines, "  • "+op.PluginID+": "+m.progress.errors[i])
 			}
 		}
 	}
@@ -546,17 +546,17 @@ func (m *Model) renderErrorSummary(styles Styles) string {
 
 // renderFilterInput renders the filter input bar.
 func (m *Model) renderFilterInput(styles Styles) string {
-	if !m.filterActive {
+	if !m.filter.active {
 		return ""
 	}
 
-	input := "/" + m.filterText + "█"
+	input := "/" + m.filter.text + "█"
 	return styles.Header.Render(input)
 }
 
 // getVisiblePlugins returns plugins to display (filtered or all).
 func (m *Model) getVisiblePlugins() []PluginState {
-	if !m.filterActive || m.filterText == "" {
+	if !m.filter.active || m.filter.text == "" {
 		return m.plugins
 	}
 
@@ -573,7 +573,7 @@ func (m *Model) getVisiblePlugins() []PluginState {
 
 // getActualIndex converts a filtered index to the actual plugin index.
 func (m *Model) getActualIndex(filteredIndex int) int {
-	if !m.filterActive || m.filterText == "" {
+	if !m.filter.active || m.filter.text == "" {
 		return filteredIndex + m.listOffset
 	}
 	if filteredIndex+m.listOffset < len(m.filteredIdx) {
@@ -587,7 +587,7 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 	var lines []string
 	lines = append(lines, styles.Header.Render(" Quit Without Applying? "))
 	lines = append(lines, "")
-	lines = append(lines, "You have "+strconv.Itoa(len(m.pendingOps))+" pending change(s).")
+	lines = append(lines, "You have "+strconv.Itoa(len(m.main.pendingOps))+" pending change(s).")
 	lines = append(lines, "")
 	lines = append(lines, styles.Help.Render("Press q again to quit, Esc to cancel"))
 

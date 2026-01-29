@@ -136,30 +136,46 @@ func parsePluginID(id string) (name, marketplace string) {
 	return id, ""
 }
 
-// Model is the main application model.
-type Model struct {
-	styles          Styles
-	err             error
-	client          claude.Client
+// MainState holds state for the main two-pane view.
+type MainState struct {
 	pendingOps      map[string]Operation
-	workingDir      string
-	filterText      string
-	keys            KeyBindings
-	plugins         []PluginState
-	filteredIdx     []int
-	operationErrors []string
-	operations      []Operation
-	selectedIdx     int
-	mode            Mode
-	currentOpIdx    int
-	height          int
-	width           int
-	listOffset      int
-	loading         bool
 	showConfirm     bool
-	filterActive    bool
 	showQuitConfirm bool
 	mouseEnabled    bool
+}
+
+// FilterState holds state for filter mode.
+type FilterState struct {
+	text   string
+	active bool
+}
+
+// ProgressState holds state for operation progress.
+type ProgressState struct {
+	operations []Operation
+	errors     []string
+	currentIdx int
+	loading    bool
+}
+
+// Model is the main application model.
+// Fields ordered for optimal memory alignment (pointers/slices first, bools last).
+type Model struct {
+	client      claude.Client
+	err         error
+	styles      Styles
+	workingDir  string
+	main        MainState
+	keys        KeyBindings
+	filter      FilterState
+	plugins     []PluginState
+	filteredIdx []int
+	progress    ProgressState
+	mode        Mode
+	height      int
+	width       int
+	selectedIdx int
+	listOffset  int
 }
 
 // NewModel creates a new Model with the given client and working directory.
@@ -171,13 +187,17 @@ func NewModel(client claude.Client, workingDir string) *Model {
 // NewModelWithTheme creates a new Model with the specified theme.
 func NewModelWithTheme(client claude.Client, workingDir string, theme Theme) *Model {
 	return &Model{
-		client:       client,
-		workingDir:   workingDir,
-		styles:       DefaultStylesWithTheme(theme),
-		keys:         DefaultKeyBindings(),
-		pendingOps:   make(map[string]Operation),
-		loading:      true,
-		mouseEnabled: true,
+		client:     client,
+		workingDir: workingDir,
+		styles:     DefaultStylesWithTheme(theme),
+		keys:       DefaultKeyBindings(),
+		main: MainState{
+			pendingOps:   make(map[string]Operation),
+			mouseEnabled: true,
+		},
+		progress: ProgressState{
+			loading: true,
+		},
 	}
 }
 
@@ -333,7 +353,7 @@ func (m *Model) toggleEnablement() {
 	}
 
 	// Block if plugin has pending install/uninstall operation
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
 		if existingOp.Type == OpInstall || existingOp.Type == OpUninstall {
 			// Don't allow enable/disable when install/uninstall is pending
 			return
@@ -349,7 +369,7 @@ func (m *Model) toggleEnablement() {
 	}
 
 	// If already pending the same operation, clear it (toggle off)
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
 		if existingOp.Type == opType {
 			m.clearPending(plugin.ID)
 			return
@@ -357,7 +377,7 @@ func (m *Model) toggleEnablement() {
 	}
 
 	// Create enable/disable operation
-	m.pendingOps[plugin.ID] = Operation{
+	m.main.pendingOps[plugin.ID] = Operation{
 		PluginID: plugin.ID,
 		Scope:    plugin.InstalledScope, // Use current installed scope
 		Type:     opType,
@@ -373,7 +393,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pluginsLoadedMsg:
-		m.loading = false
+		m.progress.loading = false
 		m.plugins = msg.plugins
 		// Skip to first non-header item
 		for i, p := range m.plugins {
@@ -385,13 +405,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pluginsErrorMsg:
-		m.loading = false
+		m.progress.loading = false
 		m.err = msg.err
 		return m, nil
 	}
 
 	// Handle confirmation dialog
-	if m.showConfirm {
+	if m.main.showConfirm {
 		return m.updateConfirmation(msg)
 	}
 
@@ -410,7 +430,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (m *Model) View() string {
-	if m.loading {
+	if m.progress.loading {
 		return "Loading plugins..."
 	}
 
@@ -418,11 +438,11 @@ func (m *Model) View() string {
 		return "Error: " + m.err.Error() + "\n\nPress q to quit."
 	}
 
-	if m.showQuitConfirm {
+	if m.main.showQuitConfirm {
 		return m.renderQuitConfirmation(m.styles)
 	}
 
-	if m.showConfirm {
+	if m.main.showConfirm {
 		return m.renderConfirmation(m.styles)
 	}
 

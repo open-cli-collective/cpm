@@ -17,18 +17,18 @@ func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle quit confirmation
-		if m.showQuitConfirm {
+		if m.main.showQuitConfirm {
 			switch {
 			case matchesKey(msg, m.keys.Quit):
 				return m, tea.Quit
 			case matchesKey(msg, m.keys.Escape):
-				m.showQuitConfirm = false
+				m.main.showQuitConfirm = false
 				return m, nil
 			}
 		}
 
 		// Handle filter mode
-		if m.filterActive {
+		if m.filter.active {
 			return m.updateFilter(msg)
 		}
 		return m.handleKeyPress(msg)
@@ -61,8 +61,8 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleMouseToggle toggles mouse capture on/off.
 func (m *Model) handleMouseToggle() (tea.Model, tea.Cmd) {
-	m.mouseEnabled = !m.mouseEnabled
-	if m.mouseEnabled {
+	m.main.mouseEnabled = !m.main.mouseEnabled
+	if m.main.mouseEnabled {
 		return m, tea.EnableMouseCellMotion
 	}
 	return m, tea.DisableMouse
@@ -82,8 +82,8 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		matchesKey(msg, keys.Enable):
 		m.handleOperationKeys(msg, keys)
 	case matchesKey(msg, keys.Enter):
-		if len(m.pendingOps) > 0 {
-			m.showConfirm = true
+		if len(m.main.pendingOps) > 0 {
+			m.main.showConfirm = true
 		}
 	case matchesKey(msg, keys.Escape):
 		plugin := m.getSelectedPlugin()
@@ -129,8 +129,8 @@ func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
 
 // handleQuitKey handles the quit key, showing confirmation if there are pending changes.
 func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
-	if len(m.pendingOps) > 0 && !m.showQuitConfirm {
-		m.showQuitConfirm = true
+	if len(m.main.pendingOps) > 0 && !m.main.showQuitConfirm {
+		m.main.showQuitConfirm = true
 		return m, nil
 	}
 	return m, tea.Quit
@@ -138,14 +138,14 @@ func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
 
 // handleRefreshKey handles the refresh key.
 func (m *Model) handleRefreshKey() (tea.Model, tea.Cmd) {
-	m.loading = true
+	m.progress.loading = true
 	return m, m.loadPlugins
 }
 
 // handleFilterKey activates filter mode.
 func (m *Model) handleFilterKey() {
-	m.filterActive = true
-	m.filterText = ""
+	m.filter.active = true
+	m.filter.text = ""
 	m.filteredIdx = nil
 }
 
@@ -252,7 +252,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 	}
 
 	// If already pending for the same scope, clear it (toggle off)
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
 		if existingOp.Type == OpInstall && existingOp.Scope == scope {
 			m.clearPending(plugin.ID)
 			return
@@ -260,7 +260,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 	}
 
 	// Create install operation
-	m.pendingOps[plugin.ID] = Operation{
+	m.main.pendingOps[plugin.ID] = Operation{
 		PluginID: plugin.ID,
 		Scope:    scope,
 		Type:     OpInstall,
@@ -277,7 +277,7 @@ func (m *Model) toggleScope() {
 	// Determine next scope in cycle: None → Local → Project → Uninstall → None
 	var nextOp Operation
 
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
 		// Already has pending operation, cycle to next state
 		switch {
 		case existingOp.Type == OpInstall && existingOp.Scope == claude.ScopeLocal:
@@ -322,7 +322,7 @@ func (m *Model) toggleScope() {
 		}
 	}
 
-	m.pendingOps[plugin.ID] = nextOp
+	m.main.pendingOps[plugin.ID] = nextOp
 }
 
 // selectForUninstall marks the selected plugin for uninstallation.
@@ -333,7 +333,7 @@ func (m *Model) selectForUninstall() {
 	}
 
 	// If already pending uninstall, clear it (toggle off)
-	if existingOp, ok := m.pendingOps[plugin.ID]; ok {
+	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
 		if existingOp.Type == OpUninstall {
 			m.clearPending(plugin.ID)
 			return
@@ -341,7 +341,7 @@ func (m *Model) selectForUninstall() {
 	}
 
 	// Create uninstall operation
-	m.pendingOps[plugin.ID] = Operation{
+	m.main.pendingOps[plugin.ID] = Operation{
 		PluginID:      plugin.ID,
 		Scope:         claude.ScopeNone,
 		OriginalScope: plugin.InstalledScope,
@@ -351,7 +351,7 @@ func (m *Model) selectForUninstall() {
 
 // clearPending clears the pending change for the selected plugin.
 func (m *Model) clearPending(pluginID string) {
-	delete(m.pendingOps, pluginID)
+	delete(m.main.pendingOps, pluginID)
 }
 
 // getSelectedPlugin returns the currently selected plugin, or nil if none.
@@ -368,11 +368,11 @@ func (m *Model) updateConfirmation(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case matchesKey(keyMsg, m.keys.Enter):
 			// Start execution
-			m.showConfirm = false
+			m.main.showConfirm = false
 			return m.startExecution()
 		case matchesKey(keyMsg, m.keys.Escape), matchesKey(keyMsg, m.keys.Quit):
 			// Cancel
-			m.showConfirm = false
+			m.main.showConfirm = false
 		}
 	}
 	return m, nil
@@ -381,21 +381,21 @@ func (m *Model) updateConfirmation(msg tea.Msg) (tea.Model, tea.Cmd) {
 // startExecution begins executing pending operations.
 func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 	// Build operation list from pendingOps
-	m.operations = nil
-	for _, op := range m.pendingOps {
-		m.operations = append(m.operations, op)
+	m.progress.operations = nil
+	for _, op := range m.main.pendingOps {
+		m.progress.operations = append(m.progress.operations, op)
 	}
 
 	// Sort operations: uninstalls first, then installs, then enable/disable
-	sort.Slice(m.operations, func(i, j int) bool {
+	sort.Slice(m.progress.operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
 			OpInstall:   1,
 			OpEnable:    2,
 			OpDisable:   3,
 		}
-		orderI := typeOrder[m.operations[i].Type]
-		orderJ := typeOrder[m.operations[j].Type]
+		orderI := typeOrder[m.progress.operations[i].Type]
+		orderJ := typeOrder[m.progress.operations[j].Type]
 
 		// If same order, maintain stable sort (don't swap)
 		if orderI == orderJ {
@@ -404,15 +404,15 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		return orderI < orderJ
 	})
 
-	m.currentOpIdx = 0
+	m.progress.currentIdx = 0
 	m.mode = ModeProgress
-	m.operationErrors = nil
+	m.progress.errors = nil
 
-	if len(m.operations) == 0 {
+	if len(m.progress.operations) == 0 {
 		return m, nil
 	}
 
-	return m, m.executeOperation(m.operations[0])
+	return m, m.executeOperation(m.progress.operations[0])
 }
 
 // executeOperation returns a command that executes a single operation.
@@ -442,19 +442,19 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if opMsg, ok := msg.(operationDoneMsg); ok {
 		// Record result
 		if opMsg.err != nil {
-			m.operationErrors[m.currentOpIdx] = opMsg.err.Error()
+			m.progress.errors[m.progress.currentIdx] = opMsg.err.Error()
 		}
 
-		m.currentOpIdx++
+		m.progress.currentIdx++
 
 		// Execute next operation or finish
-		if m.currentOpIdx < len(m.operations) {
-			return m, m.executeOperation(m.operations[m.currentOpIdx])
+		if m.progress.currentIdx < len(m.progress.operations) {
+			return m, m.executeOperation(m.progress.operations[m.progress.currentIdx])
 		}
 
 		// All done - refresh and show summary
 		m.mode = ModeSummary
-		m.pendingOps = make(map[string]Operation)
+		m.main.pendingOps = make(map[string]Operation)
 		return m, m.loadPlugins
 	}
 	return m, nil
@@ -467,8 +467,8 @@ func (m *Model) updateError(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case matchesKey(msg, m.keys.Enter), matchesKey(msg, m.keys.Escape):
 			m.mode = ModeMain
-			m.operations = nil
-			m.operationErrors = nil
+			m.progress.operations = nil
+			m.progress.errors = nil
 		case matchesKey(msg, m.keys.Quit):
 			return m, tea.Quit
 		}
@@ -496,7 +496,7 @@ func (m *Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyBackspace:
 		m.backspaceFilter()
 	case tea.KeyRunes:
-		m.filterText += string(msg.Runes)
+		m.filter.text += string(msg.Runes)
 		m.applyFilter()
 	case tea.KeyUp:
 		m.navigateFilterUp()
@@ -509,27 +509,27 @@ func (m *Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // exitFilter exits filter mode and clears filter state.
 func (m *Model) exitFilter() {
-	m.filterActive = false
-	m.filterText = ""
+	m.filter.active = false
+	m.filter.text = ""
 	m.filteredIdx = nil
 	m.listOffset = 0
 }
 
 // selectFilterMatch selects the first match and exits filter mode.
 func (m *Model) selectFilterMatch() {
-	m.filterActive = false
+	m.filter.active = false
 	// Keep filtered results, select first match if any
 	if len(m.filteredIdx) > 0 {
 		m.selectedIdx = m.filteredIdx[0]
 	}
-	m.filterText = ""
+	m.filter.text = ""
 	m.filteredIdx = nil
 }
 
 // backspaceFilter removes the last character from filter text.
 func (m *Model) backspaceFilter() {
-	if len(m.filterText) > 0 {
-		m.filterText = m.filterText[:len(m.filterText)-1]
+	if len(m.filter.text) > 0 {
+		m.filter.text = m.filter.text[:len(m.filter.text)-1]
 		m.applyFilter()
 	}
 }
@@ -578,12 +578,12 @@ func (m *Model) navigateFilterDown() {
 
 // applyFilter updates filteredIdx based on filterText.
 func (m *Model) applyFilter() {
-	if m.filterText == "" {
+	if m.filter.text == "" {
 		m.filteredIdx = nil
 		return
 	}
 
-	filter := strings.ToLower(m.filterText)
+	filter := strings.ToLower(m.filter.text)
 	m.filteredIdx = nil
 
 	for i, p := range m.plugins {
@@ -638,7 +638,7 @@ func (m *Model) handleMouseClick(msg tea.MouseMsg) {
 
 	// Calculate vertical offset: account for filter bar (1 line if active) + pane border (1 line)
 	verticalOffset := 1 // Default: 1 for top border
-	if m.filterActive {
+	if m.filter.active {
 		verticalOffset++ // Add 1 for filter input bar
 	}
 	// Calculate row index relative to visible area (not absolute plugin index)
