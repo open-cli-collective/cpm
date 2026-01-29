@@ -28,6 +28,7 @@ type KeyBindings struct {
 	Sort      []string // Cycle through sort options
 	Readme    []string // View plugin README
 	Changelog []string // View plugin CHANGELOG
+	Config    []string // Open plugin config viewer
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -53,6 +54,7 @@ func DefaultKeyBindings() KeyBindings {
 		Sort:      []string{"s"},
 		Readme:    []string{"?"},
 		Changelog: []string{"C"},
+		Config:    []string{"c"},
 	}
 }
 

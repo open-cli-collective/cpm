@@ -87,6 +87,8 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.handleOperationKeys(msg, keys)
 	case matchesKey(msg, keys.Sort):
 		m.cycleSortMode()
+	case matchesKey(msg, keys.Config):
+		m.openConfig()
 	case matchesKey(msg, keys.Enter):
 		if len(m.main.pendingOps) > 0 {
 			m.main.showConfirm = true
@@ -984,6 +986,61 @@ func (m *Model) updateDoc(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// openConfig opens the config viewer for the selected plugin.
+func (m *Model) openConfig() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	// Need an install path to read config
+	if plugin.InstallPath == "" {
+		m.config.content = "Plugin not installed locally - no configuration available."
+		m.config.title = plugin.Name + " - Config"
+		m.config.scroll = 0
+		m.mode = ModeConfig
+		return
+	}
+
+	// Read config files
+	configs, err := claude.ReadPluginConfigs(plugin.InstallPath)
+	if err != nil {
+		m.config.content = "No configuration files found."
+		m.config.title = plugin.Name + " - Config"
+		m.config.scroll = 0
+		m.mode = ModeConfig
+		return
+	}
+
+	// Build content from all config files
+	var content strings.Builder
+	for i, cfg := range configs {
+		if i > 0 {
+			content.WriteString("\n\n")
+		}
+		content.WriteString("=== ")
+		content.WriteString(cfg.RelativePath)
+		content.WriteString(" ===\n\n")
+		content.WriteString(cfg.Content)
+	}
+
+	m.config.content = content.String()
+	m.config.title = plugin.Name + " - Config"
+	m.config.scroll = 0
+	m.mode = ModeConfig
+}
+
+// updateConfig handles input in config view mode.
+func (m *Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return m.handleConfigKeyInput(msg)
+	case tea.MouseMsg:
+		return m.handleConfigMouseInput(msg)
+	}
+	return m, nil
+}
+
 // handleDocKeyInput processes keyboard input in document view mode.
 func (m *Model) handleDocKeyInput(msg tea.KeyMsg) {
 	keys := m.keys
@@ -1031,4 +1088,94 @@ func (m *Model) closeDocView() {
 	m.doc.content = ""
 	m.doc.title = ""
 	m.doc.scroll = 0
+}
+
+// handleConfigKeyInput handles key presses in config view.
+func (m *Model) handleConfigKeyInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keys := m.keys
+
+	switch {
+	case matchesKey(msg, keys.Quit):
+		return m, tea.Quit
+	case matchesKey(msg, keys.Escape), matchesKey(msg, keys.Config):
+		m.closeConfigView()
+	case matchesKey(msg, keys.Up):
+		m.scrollConfigUp(1)
+	case matchesKey(msg, keys.Down):
+		m.scrollConfigDown(1)
+	case matchesKey(msg, keys.PageUp):
+		m.scrollConfigUp(m.getConfigPageSize())
+	case matchesKey(msg, keys.PageDown):
+		m.scrollConfigDown(m.getConfigPageSize())
+	case matchesKey(msg, keys.Home):
+		m.config.scroll = 0
+	case matchesKey(msg, keys.End):
+		m.scrollConfigToEnd()
+	}
+
+	return m, nil
+}
+
+// handleConfigMouseInput handles mouse input in config view.
+func (m *Model) handleConfigMouseInput(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Action != tea.MouseActionPress {
+		return m, nil
+	}
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.scrollConfigUp(wheelScrollSpeed)
+	case tea.MouseButtonWheelDown:
+		m.scrollConfigDown(wheelScrollSpeed)
+	}
+
+	return m, nil
+}
+
+// closeConfigView exits the config view and returns to main mode.
+func (m *Model) closeConfigView() {
+	m.mode = ModeMain
+	m.config.content = ""
+	m.config.title = ""
+	m.config.scroll = 0
+}
+
+// scrollConfigUp scrolls the config view up by n lines.
+func (m *Model) scrollConfigUp(n int) {
+	m.config.scroll -= n
+	if m.config.scroll < 0 {
+		m.config.scroll = 0
+	}
+}
+
+// scrollConfigDown scrolls the config view down by n lines.
+func (m *Model) scrollConfigDown(n int) {
+	maxScroll := m.getConfigMaxScroll()
+	m.config.scroll += n
+	if m.config.scroll > maxScroll {
+		m.config.scroll = maxScroll
+	}
+}
+
+// scrollConfigToEnd scrolls to the end of the config content.
+func (m *Model) scrollConfigToEnd() {
+	m.config.scroll = m.getConfigMaxScroll()
+}
+
+// getConfigPageSize returns the number of lines visible in the config view.
+func (m *Model) getConfigPageSize() int {
+	if m.height <= 6 {
+		return 10
+	}
+	return m.height - 6 // Account for borders and help
+}
+
+// getConfigMaxScroll returns the maximum scroll position for config content.
+func (m *Model) getConfigMaxScroll() int {
+	lines := strings.Count(m.config.content, "\n") + 1
+	maxScroll := lines - m.getConfigPageSize()
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
 }

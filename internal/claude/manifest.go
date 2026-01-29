@@ -191,6 +191,88 @@ func GetProjectEnabledPlugins(workingDir string) map[string]Scope {
 	return result
 }
 
+// ConfigFile represents a JSON configuration file found in a plugin.
+type ConfigFile struct {
+	RelativePath string // Path relative to plugin root (e.g., ".claude-plugin/plugin.json")
+	Content      string // Pretty-printed JSON content
+}
+
+// ReadPluginConfigs reads all JSON configuration files from a plugin directory.
+// Returns the manifest and any other config files found.
+func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
+	var configs []ConfigFile
+
+	// Always include the manifest first if it exists
+	manifestPath := filepath.Join(installPath, ".claude-plugin", "plugin.json")
+	if content, err := readAndFormatJSON(manifestPath); err == nil {
+		configs = append(configs, ConfigFile{
+			RelativePath: ".claude-plugin/plugin.json",
+			Content:      content,
+		})
+	}
+
+	// Check for hooks.json
+	hooksPath := filepath.Join(installPath, "hooks", "hooks.json")
+	if content, err := readAndFormatJSON(hooksPath); err == nil {
+		configs = append(configs, ConfigFile{
+			RelativePath: "hooks/hooks.json",
+			Content:      content,
+		})
+	}
+
+	// Check for .mcp.json (MCP server config)
+	mcpPath := filepath.Join(installPath, ".mcp.json")
+	if content, err := readAndFormatJSON(mcpPath); err == nil {
+		configs = append(configs, ConfigFile{
+			RelativePath: ".mcp.json",
+			Content:      content,
+		})
+	}
+
+	// Scan mcp-servers/ for config files
+	mcpServersDir := filepath.Join(installPath, "mcp-servers")
+	if entries, err := os.ReadDir(mcpServersDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				configPath := filepath.Join(mcpServersDir, entry.Name(), "config.json")
+				if content, err := readAndFormatJSON(configPath); err == nil {
+					configs = append(configs, ConfigFile{
+						RelativePath: filepath.Join("mcp-servers", entry.Name(), "config.json"),
+						Content:      content,
+					})
+				}
+			}
+		}
+	}
+
+	if len(configs) == 0 {
+		return nil, os.ErrNotExist
+	}
+
+	return configs, nil
+}
+
+// readAndFormatJSON reads a JSON file and returns it pretty-printed.
+func readAndFormatJSON(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse and re-format for consistent pretty printing
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return "", err
+	}
+
+	formatted, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	return string(formatted), nil
+}
+
 // ResolveMarketplaceSourcePath resolves the full path to a plugin in a marketplace.
 // It combines ~/.claude/plugins/marketplaces/<marketplace>/ with the source field.
 func ResolveMarketplaceSourcePath(marketplace string, source any) string {
