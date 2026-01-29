@@ -314,96 +314,112 @@ func (m *Model) loadPlugins() tea.Msg {
 // mergePlugins combines installed and available plugins, grouped by marketplace.
 // Only installed plugins relevant to workingDir are included.
 func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
-	// Get plugins enabled for this project from settings files
 	projectEnabled := claude.GetProjectEnabledPlugins(workingDir)
-
-	// Build map of installed plugins by ID
-	// User-scoped plugins are always relevant
-	// Project/local-scoped plugins are relevant if in the project's settings
-	installedByID := make(map[string]claude.InstalledPlugin)
-	for _, p := range list.Installed {
-		if p.Scope == claude.ScopeUser {
-			installedByID[p.ID] = p
-		} else if _, ok := projectEnabled[p.ID]; ok {
-			// Plugin is in this project's settings - use the scope from settings
-			p.Scope = projectEnabled[p.ID]
-			installedByID[p.ID] = p
-		}
-	}
-
-	// Track which installed plugins we've seen via available list
+	installedByID := buildInstalledByID(list.Installed, projectEnabled)
 	seenInstalled := make(map[string]bool)
-
-	// Group by marketplace
 	byMarketplace := make(map[string][]PluginState)
 
-	// Add available plugins (which includes installed ones)
+	// Process available plugins
 	for _, p := range list.Available {
-		state := PluginStateFromAvailable(p)
-		state.AvailableVersion = p.Version // Track available version
-
-		// Check if installed (in the filtered set)
-		if installed, ok := installedByID[p.PluginID]; ok {
-			state.InstalledScope = installed.Scope
-			state.Enabled = installed.Enabled
-			state.Version = installed.Version
-			state.InstallPath = installed.InstallPath
-			seenInstalled[p.PluginID] = true
-
-			// Check if update is available
-			if p.Version != "" && installed.Version != "" && p.Version != installed.Version {
-				state.HasUpdate = true
-			}
-
-			// Read manifest for author and scan for components
-			if installed.InstallPath != "" {
-				if manifest, err := claude.ReadPluginManifest(installed.InstallPath); err == nil {
-					state.AuthorName = manifest.AuthorName
-					state.AuthorEmail = manifest.AuthorEmail
-				}
-				state.Components = claude.ScanPluginComponents(installed.InstallPath)
-			}
-		}
-
+		state := processAvailablePlugin(p, installedByID, seenInstalled)
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
-	// Add installed plugins that weren't in the available list
-	// Only include those that are relevant (user-scoped or in project settings)
+	// Process installed plugins not in available list
 	for _, p := range list.Installed {
-		// Check relevance: user scope or in project settings
-		isRelevant := p.Scope == claude.ScopeUser
-		if scope, ok := projectEnabled[p.ID]; ok {
-			isRelevant = true
-			p.Scope = scope // Use scope from settings
+		state, ok := processInstalledPlugin(p, projectEnabled, seenInstalled)
+		if ok {
+			byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 		}
-		if !isRelevant {
-			continue
-		}
-		if seenInstalled[p.ID] {
-			continue // Already added (via available list or earlier in installed list)
-		}
-		seenInstalled[p.ID] = true // Mark as seen to prevent duplicates
-		state := PluginStateFromInstalled(p)
-		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
-	// Sort marketplace names for deterministic ordering
+	return sortAndGroupByMarketplace(byMarketplace)
+}
+
+// buildInstalledByID creates a map of installed plugins by ID.
+// Only includes user-scoped plugins and those in project settings.
+func buildInstalledByID(installed []claude.InstalledPlugin, projectEnabled map[string]claude.Scope) map[string]claude.InstalledPlugin {
+	result := make(map[string]claude.InstalledPlugin)
+	for _, p := range installed {
+		if p.Scope == claude.ScopeUser {
+			result[p.ID] = p
+		} else if scope, ok := projectEnabled[p.ID]; ok {
+			p.Scope = scope
+			result[p.ID] = p
+		}
+	}
+	return result
+}
+
+// processAvailablePlugin processes an available plugin and merges with installed data.
+func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]claude.InstalledPlugin, seenInstalled map[string]bool) PluginState {
+	state := PluginStateFromAvailable(p)
+	state.AvailableVersion = p.Version
+
+	if installed, ok := installedByID[p.PluginID]; ok {
+		mergeInstalledInfo(&state, installed, p.Version)
+		seenInstalled[p.PluginID] = true
+	}
+
+	return state
+}
+
+// mergeInstalledInfo merges installed plugin info into a PluginState.
+func mergeInstalledInfo(state *PluginState, installed claude.InstalledPlugin, availableVersion string) {
+	state.InstalledScope = installed.Scope
+	state.Enabled = installed.Enabled
+	state.Version = installed.Version
+	state.InstallPath = installed.InstallPath
+
+	// Check if update is available
+	if availableVersion != "" && installed.Version != "" && availableVersion != installed.Version {
+		state.HasUpdate = true
+	}
+
+	// Read manifest and scan components
+	if installed.InstallPath != "" {
+		if manifest, err := claude.ReadPluginManifest(installed.InstallPath); err == nil {
+			state.AuthorName = manifest.AuthorName
+			state.AuthorEmail = manifest.AuthorEmail
+		}
+		state.Components = claude.ScanPluginComponents(installed.InstallPath)
+	}
+}
+
+// processInstalledPlugin processes an installed plugin not in the available list.
+// Returns the state and true if it should be included, false otherwise.
+func processInstalledPlugin(p claude.InstalledPlugin, projectEnabled map[string]claude.Scope, seenInstalled map[string]bool) (PluginState, bool) {
+	// Check relevance
+	isRelevant := p.Scope == claude.ScopeUser
+	if scope, ok := projectEnabled[p.ID]; ok {
+		isRelevant = true
+		p.Scope = scope
+	}
+
+	if !isRelevant || seenInstalled[p.ID] {
+		return PluginState{}, false
+	}
+
+	seenInstalled[p.ID] = true
+	return PluginStateFromInstalled(p), true
+}
+
+// sortAndGroupByMarketplace sorts and groups plugins by marketplace with headers.
+func sortAndGroupByMarketplace(byMarketplace map[string][]PluginState) []PluginState {
+	// Sort marketplace names
 	marketplaces := make([]string, 0, len(byMarketplace))
 	for marketplace := range byMarketplace {
 		marketplaces = append(marketplaces, marketplace)
 	}
 	sort.Strings(marketplaces)
 
-	// Flatten with group headers in sorted order
+	// Build result with headers
 	var result []PluginState
 	for _, marketplace := range marketplaces {
 		plugins := byMarketplace[marketplace]
-		// Sort plugins within marketplace by name (case-insensitive) for deterministic ordering
 		sort.Slice(plugins, func(i, j int) bool {
 			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
 		})
-		// Add group header
 		result = append(result, PluginState{
 			Name:          marketplace,
 			IsGroupHeader: true,
