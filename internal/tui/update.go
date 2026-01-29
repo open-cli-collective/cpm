@@ -102,6 +102,12 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.openDoc(DocReadme)
 	case matchesKey(msg, keys.Changelog):
 		m.openDoc(DocChangelog)
+	case matchesKey(msg, keys.BulkToggle):
+		m.toggleBulkSelection()
+	case matchesKey(msg, keys.BulkAll):
+		m.selectAllPlugins()
+	case matchesKey(msg, keys.BulkNone):
+		m.deselectAllPlugins()
 	}
 }
 
@@ -256,39 +262,45 @@ func (m *Model) ensureVisible() {
 	}
 }
 
-// selectForInstall marks the selected plugin for installation at the given scope.
-// If the plugin is already installed at a different scope, creates a migration operation.
+// selectForInstall marks the selected plugin(s) for installation at the given scope.
+// If a plugin is already installed at a different scope, creates a migration operation.
 func (m *Model) selectForInstall(scope claude.Scope) {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
+	plugins := m.getSelectedPlugins()
+	if len(plugins) == 0 {
 		return
 	}
 
-	// If already pending for the same scope/operation, clear it (toggle off)
-	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
-		if (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == scope {
-			m.clearPending(plugin.ID)
-			return
+	for _, plugin := range plugins {
+		if plugin.IsGroupHeader {
+			continue
 		}
-	}
 
-	// Check if plugin is already installed at a different scope
-	if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
-		// Create migrate operation (move from current scope to new scope)
+		// If already pending for the same scope/operation, clear it (toggle off)
+		if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
+			if (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == scope {
+				m.clearPending(plugin.ID)
+				continue
+			}
+		}
+
+		// Check if plugin is already installed at a different scope
+		if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
+			// Create migrate operation (move from current scope to new scope)
+			m.main.pendingOps[plugin.ID] = Operation{
+				PluginID:      plugin.ID,
+				Scope:         scope,
+				OriginalScope: plugin.InstalledScope,
+				Type:          OpMigrate,
+			}
+			continue
+		}
+
+		// Create install operation
 		m.main.pendingOps[plugin.ID] = Operation{
-			PluginID:      plugin.ID,
-			Scope:         scope,
-			OriginalScope: plugin.InstalledScope,
-			Type:          OpMigrate,
+			PluginID: plugin.ID,
+			Scope:    scope,
+			Type:     OpInstall,
 		}
-		return
-	}
-
-	// Create install operation
-	m.main.pendingOps[plugin.ID] = Operation{
-		PluginID: plugin.ID,
-		Scope:    scope,
-		Type:     OpInstall,
 	}
 }
 
@@ -356,27 +368,33 @@ func (m *Model) firstToggleOp(plugin *PluginState, scope claude.Scope) *Operatio
 	}
 }
 
-// selectForUninstall marks the selected plugin for uninstallation.
+// selectForUninstall marks the selected plugin(s) for uninstallation.
 func (m *Model) selectForUninstall() {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
-		return // Can't uninstall if not installed or if group header
+	plugins := m.getSelectedPlugins()
+	if len(plugins) == 0 {
+		return
 	}
 
-	// If already pending uninstall, clear it (toggle off)
-	if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
-		if existingOp.Type == OpUninstall {
-			m.clearPending(plugin.ID)
-			return
+	for _, plugin := range plugins {
+		if plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
+			continue // Can't uninstall if not installed or if group header
 		}
-	}
 
-	// Create uninstall operation
-	m.main.pendingOps[plugin.ID] = Operation{
-		PluginID:      plugin.ID,
-		Scope:         claude.ScopeNone,
-		OriginalScope: plugin.InstalledScope,
-		Type:          OpUninstall,
+		// If already pending uninstall, clear it (toggle off)
+		if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
+			if existingOp.Type == OpUninstall {
+				m.clearPending(plugin.ID)
+				continue
+			}
+		}
+
+		// Create uninstall operation
+		m.main.pendingOps[plugin.ID] = Operation{
+			PluginID:      plugin.ID,
+			Scope:         claude.ScopeNone,
+			OriginalScope: plugin.InstalledScope,
+			Type:          OpUninstall,
+		}
 	}
 }
 
@@ -1178,4 +1196,51 @@ func (m *Model) getConfigMaxScroll() int {
 		return 0
 	}
 	return maxScroll
+}
+
+// toggleBulkSelection toggles the selection state of the current plugin.
+func (m *Model) toggleBulkSelection() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	if m.main.bulkSelected[plugin.ID] {
+		delete(m.main.bulkSelected, plugin.ID)
+	} else {
+		m.main.bulkSelected[plugin.ID] = true
+	}
+}
+
+// selectAllPlugins selects all non-header plugins.
+func (m *Model) selectAllPlugins() {
+	for _, p := range m.plugins {
+		if !p.IsGroupHeader {
+			m.main.bulkSelected[p.ID] = true
+		}
+	}
+}
+
+// deselectAllPlugins clears all selections.
+func (m *Model) deselectAllPlugins() {
+	m.main.bulkSelected = make(map[string]bool)
+}
+
+// getSelectedPlugins returns all plugins that are bulk-selected.
+// If no plugins are bulk-selected, returns the currently highlighted plugin.
+func (m *Model) getSelectedPlugins() []PluginState {
+	if len(m.main.bulkSelected) == 0 {
+		if plugin := m.getSelectedPlugin(); plugin != nil && !plugin.IsGroupHeader {
+			return []PluginState{*plugin}
+		}
+		return nil
+	}
+
+	var selected []PluginState
+	for _, p := range m.plugins {
+		if m.main.bulkSelected[p.ID] {
+			selected = append(selected, p)
+		}
+	}
+	return selected
 }
