@@ -675,21 +675,35 @@ func (m *Model) cycleSortMode() {
 
 // sortPlugins sorts the plugin list according to the current sort mode.
 func (m *Model) sortPlugins() {
-	// Remember current selection
-	var selectedID string
-	if m.selectedIdx >= 0 && m.selectedIdx < len(m.plugins) && !m.plugins[m.selectedIdx].IsGroupHeader {
-		selectedID = m.plugins[m.selectedIdx].ID
-	}
+	selectedID := m.getSelectedPluginID()
+	plugins := m.extractNonHeaderPlugins()
+	applySortMode(plugins, m.main.sortMode)
+	m.plugins = rebuildWithGroupHeaders(plugins, m.main.sortMode)
+	m.restoreSelection(selectedID)
+}
 
-	// Sort plugins (excluding group headers for now - we'll rebuild those)
+// getSelectedPluginID returns the ID of the currently selected plugin, or empty string.
+func (m *Model) getSelectedPluginID() string {
+	if m.selectedIdx >= 0 && m.selectedIdx < len(m.plugins) && !m.plugins[m.selectedIdx].IsGroupHeader {
+		return m.plugins[m.selectedIdx].ID
+	}
+	return ""
+}
+
+// extractNonHeaderPlugins returns all plugins excluding group headers.
+func (m *Model) extractNonHeaderPlugins() []PluginState {
 	var plugins []PluginState
 	for _, p := range m.plugins {
 		if !p.IsGroupHeader {
 			plugins = append(plugins, p)
 		}
 	}
+	return plugins
+}
 
-	switch m.main.sortMode {
+// applySortMode sorts the plugins slice according to the sort mode.
+func applySortMode(plugins []PluginState, sortMode SortMode) {
+	switch sortMode {
 	case SortByNameAsc:
 		sort.Slice(plugins, func(i, j int) bool {
 			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
@@ -699,35 +713,42 @@ func (m *Model) sortPlugins() {
 			return strings.ToLower(plugins[i].Name) > strings.ToLower(plugins[j].Name)
 		})
 	case SortByScope:
-		// Sort by scope: installed (local, project, user) first, then not installed
-		sort.Slice(plugins, func(i, j int) bool {
-			scopeOrder := map[claude.Scope]int{
-				claude.ScopeLocal:   0,
-				claude.ScopeProject: 1,
-				claude.ScopeUser:    2,
-				claude.ScopeNone:    3,
-			}
-			orderI := scopeOrder[plugins[i].InstalledScope]
-			orderJ := scopeOrder[plugins[j].InstalledScope]
-			if orderI != orderJ {
-				return orderI < orderJ
-			}
-			// Within same scope, sort by name
-			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
-		})
+		sortByScope(plugins)
 	case SortByMarketplace:
-		sort.Slice(plugins, func(i, j int) bool {
-			if plugins[i].Marketplace != plugins[j].Marketplace {
-				return plugins[i].Marketplace < plugins[j].Marketplace
-			}
-			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
-		})
+		sortByMarketplace(plugins)
 	}
+}
 
-	// Rebuild plugin list with group headers
-	m.plugins = rebuildWithGroupHeaders(plugins, m.main.sortMode)
+// sortByScope sorts plugins by scope (installed first).
+func sortByScope(plugins []PluginState) {
+	scopeOrder := map[claude.Scope]int{
+		claude.ScopeLocal:   0,
+		claude.ScopeProject: 1,
+		claude.ScopeUser:    2,
+		claude.ScopeNone:    3,
+	}
+	sort.Slice(plugins, func(i, j int) bool {
+		orderI := scopeOrder[plugins[i].InstalledScope]
+		orderJ := scopeOrder[plugins[j].InstalledScope]
+		if orderI != orderJ {
+			return orderI < orderJ
+		}
+		return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+	})
+}
 
-	// Restore selection
+// sortByMarketplace sorts plugins by marketplace name.
+func sortByMarketplace(plugins []PluginState) {
+	sort.Slice(plugins, func(i, j int) bool {
+		if plugins[i].Marketplace != plugins[j].Marketplace {
+			return plugins[i].Marketplace < plugins[j].Marketplace
+		}
+		return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+	})
+}
+
+// restoreSelection restores the selection to the plugin with the given ID.
+func (m *Model) restoreSelection(selectedID string) {
 	if selectedID != "" {
 		for i, p := range m.plugins {
 			if p.ID == selectedID {
@@ -737,8 +758,11 @@ func (m *Model) sortPlugins() {
 			}
 		}
 	}
+	m.selectFirstNonHeader()
+}
 
-	// If selection not found, select first non-header
+// selectFirstNonHeader selects the first non-header plugin.
+func (m *Model) selectFirstNonHeader() {
 	for i, p := range m.plugins {
 		if !p.IsGroupHeader {
 			m.selectedIdx = i
