@@ -146,8 +146,8 @@ type MainState struct {
 
 // FilterState holds state for filter mode.
 type FilterState struct {
-	active bool
 	text   string
+	active bool
 }
 
 // ProgressState holds state for operation progress.
@@ -159,25 +159,26 @@ type ProgressState struct {
 }
 
 // Model is the main application model.
+// Fields ordered for optimal memory alignment (pointers/slices first, bools last).
 type Model struct {
-	// Core state (always used)
+	// Mode-specific state (larger sub-structs first)
+	progress ProgressState
+	main     MainState
+	filter   FilterState
+
+	// Core state
 	client      claude.Client
 	styles      Styles
 	keys        KeyBindings
 	plugins     []PluginState
 	filteredIdx []int
+	err         error
+	workingDir  string
 	mode        Mode
 	height      int
 	width       int
 	selectedIdx int
 	listOffset  int
-	err         error
-	workingDir  string
-
-	// Mode-specific state (value types, not pointers)
-	main     MainState
-	filter   FilterState
-	progress ProgressState
 }
 
 // NewModel creates a new Model with the given client and working directory.
