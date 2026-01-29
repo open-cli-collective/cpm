@@ -30,6 +30,8 @@ const (
 	ModeProgress
 	// ModeSummary shows completion summary (both successes and errors).
 	ModeSummary
+	// ModeReadme shows the plugin README.
+	ModeReadme
 )
 
 // SortMode represents the current sort order for the plugin list.
@@ -180,6 +182,13 @@ type MainState struct {
 	mouseEnabled    bool
 }
 
+// ReadmeState holds state for the README viewer mode.
+type ReadmeState struct {
+	content string // Rendered README content
+	title   string // Plugin name for README header
+	scroll  int    // Scroll position
+}
+
 // FilterState holds state for filter mode.
 type FilterState struct {
 	text   string
@@ -207,6 +216,7 @@ type Model struct {
 	plugins     []PluginState
 	filteredIdx []int
 	progress    ProgressState
+	readme      ReadmeState
 	mode        Mode
 	height      int
 	width       int
@@ -459,6 +469,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProgress(msg)
 	case ModeSummary:
 		return m.updateError(msg)
+	case ModeReadme:
+		return m.updateReadme(msg)
 	}
 
 	return m, nil
@@ -489,6 +501,8 @@ func (m *Model) View() string {
 		return m.renderProgress(m.styles)
 	case ModeSummary:
 		return m.renderErrorSummary(m.styles)
+	case ModeReadme:
+		return m.renderReadme(m.styles)
 	}
 
 	return ""

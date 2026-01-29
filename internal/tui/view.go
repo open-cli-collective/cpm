@@ -363,9 +363,9 @@ func (m *Model) renderHelp(styles Styles) string {
 	sortInfo := "s: " + m.main.sortMode.String()
 
 	if len(m.main.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • Enter: apply • Esc: clear • /: filter • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • Enter: apply • Esc: clear • /: filter • ?: readme • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • /: filter • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • /: filter • ?: readme • " + mouseIndicator + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
@@ -655,4 +655,51 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 		Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// renderReadme renders the README viewer.
+func (m *Model) renderReadme(styles Styles) string {
+	// Split content into lines
+	lines := strings.Split(m.readme.content, "\n")
+
+	// Calculate visible area (height minus header and footer)
+	visibleHeight := m.height - 4
+
+	// Clamp scroll position
+	maxScroll := len(lines) - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.readme.scroll > maxScroll {
+		m.readme.scroll = maxScroll
+	}
+
+	// Get visible lines
+	start := m.readme.scroll
+	end := start + visibleHeight
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	visibleLines := lines[start:end]
+	content := strings.Join(visibleLines, "\n")
+
+	// Build the view
+	header := styles.Header.Render(" README: " + m.readme.title + " ")
+
+	// Scroll indicator
+	scrollInfo := ""
+	if len(lines) > visibleHeight {
+		scrollInfo = fmt.Sprintf(" (line %d/%d)", m.readme.scroll+1, len(lines))
+	}
+
+	help := styles.Help.Render("↑↓/jk: scroll • PgUp/PgDn: page • g: top • q/Esc/?: close" + scrollInfo)
+
+	// Combine header, content, and help
+	contentPane := lipgloss.NewStyle().
+		Width(m.width - 2).
+		Height(visibleHeight).
+		Render(content)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, contentPane, help)
 }
