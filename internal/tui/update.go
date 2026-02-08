@@ -406,7 +406,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 
 	m.currentOpIdx = 0
 	m.mode = ModeProgress
-	m.operationErrors = nil
+	m.operationErrors = make([]string, len(m.operations))
 
 	if len(m.operations) == 0 {
 		return m, nil
