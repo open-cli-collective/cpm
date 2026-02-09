@@ -32,6 +32,8 @@ const (
 	ModeSummary
 	// ModeDoc shows a document (README or CHANGELOG).
 	ModeDoc
+	// ModeConfig shows plugin configuration files.
+	ModeConfig
 )
 
 // DocType represents the type of document being viewed.
@@ -204,6 +206,13 @@ type DocState struct {
 	docType DocType // Type of document being viewed
 }
 
+// ConfigState holds state for the config viewer mode.
+type ConfigState struct {
+	content string // Rendered config content
+	title   string // Title for config viewer
+	scroll  int    // Scroll position
+}
+
 // ProgressState holds state for operation progress.
 type ProgressState struct {
 	operations []Operation
@@ -220,10 +229,11 @@ type Model struct {
 	styles      Styles
 	workingDir  string
 	keys        KeyBindings
-	filteredIdx []int
-	filter      FilterState
-	plugins     []PluginState
+	config      ConfigState
 	main        MainState
+	plugins     []PluginState
+	filter      FilterState
+	filteredIdx []int
 	doc         DocState
 	progress    ProgressState
 	mode        Mode
@@ -480,6 +490,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateError(msg)
 	case ModeDoc:
 		return m.updateDoc(msg)
+	case ModeConfig:
+		return m.updateConfig(msg)
 	}
 
 	return m, nil
@@ -512,6 +524,8 @@ func (m *Model) View() string {
 		return m.renderErrorSummary(m.styles)
 	case ModeDoc:
 		return m.renderDoc(m.styles)
+	case ModeConfig:
+		return m.renderConfig(m.styles)
 	}
 
 	return ""
