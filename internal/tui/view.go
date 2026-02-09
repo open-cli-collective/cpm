@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/open-cli-collective/cpm/internal/claude"
@@ -227,6 +229,18 @@ func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
 		}
 		lines = append(lines, styles.DetailLabel.Render("Author: ")+
 			styles.DetailValue.Render(authorStr))
+	}
+
+	// Install count (only for plugins with available info)
+	if plugin.InstallCount > 0 {
+		lines = append(lines, styles.DetailLabel.Render("Installs: ")+
+			styles.DetailValue.Render(formatInstallCount(plugin.InstallCount)))
+	}
+
+	// Last updated (only for installed plugins)
+	if plugin.LastUpdated != "" {
+		lines = append(lines, styles.DetailLabel.Render("Last updated: ")+
+			styles.DetailValue.Render(formatTimestamp(plugin.LastUpdated)))
 	}
 
 	// Status
@@ -598,6 +612,28 @@ func (m *Model) getActualIndex(filteredIndex int) int {
 		return m.filteredIdx[filteredIndex+m.listOffset]
 	}
 	return -1
+}
+
+// formatInstallCount formats an install count for display.
+func formatInstallCount(count int) string {
+	if count >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(count)/1000000)
+	}
+	if count >= 1000 {
+		return fmt.Sprintf("%.1fK", float64(count)/1000)
+	}
+	return fmt.Sprintf("%d", count)
+}
+
+// formatTimestamp formats an ISO timestamp for display.
+func formatTimestamp(timestamp string) string {
+	// Try to parse ISO 8601 format
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		// Fallback to just showing the raw timestamp
+		return timestamp
+	}
+	return t.Format("Jan 2, 2006")
 }
 
 // renderQuitConfirmation renders the quit confirmation modal.

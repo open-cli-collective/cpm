@@ -74,8 +74,10 @@ type PluginState struct {
 	ID             string
 	InstallPath    string
 	ExternalURL    string
+	LastUpdated    string
 	InstalledScope claude.Scope
 	Name           string
+	InstallCount   int
 	Enabled        bool
 	IsGroupHeader  bool
 	IsExternal     bool
@@ -95,6 +97,7 @@ func PluginStateFromInstalled(p claude.InstalledPlugin) PluginState {
 		InstalledScope: p.Scope,
 		Enabled:        p.Enabled,
 		InstallPath:    p.InstallPath,
+		LastUpdated:    p.LastUpdated,
 	}
 
 	// Read manifest for description and author
@@ -125,6 +128,7 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 		Description:    p.Description,
 		Marketplace:    p.MarketplaceName,
 		Version:        p.Version,
+		InstallCount:   p.InstallCount,
 		InstalledScope: claude.ScopeNone,
 	}
 
