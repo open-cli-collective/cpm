@@ -26,6 +26,8 @@ type KeyBindings struct {
 	Refresh   []string
 	Mouse     []string
 	Sort      []string // Cycle through sort options
+	Readme    []string // View plugin README
+	Changelog []string // View plugin CHANGELOG
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -49,6 +51,8 @@ func DefaultKeyBindings() KeyBindings {
 		Refresh:   []string{"r"},
 		Mouse:     []string{"m"},
 		Sort:      []string{"s"},
+		Readme:    []string{"?"},
+		Changelog: []string{"C"},
 	}
 }
 

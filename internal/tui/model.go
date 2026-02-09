@@ -30,6 +30,16 @@ const (
 	ModeProgress
 	// ModeSummary shows completion summary (both successes and errors).
 	ModeSummary
+	// ModeDoc shows a document (README or CHANGELOG).
+	ModeDoc
+)
+
+// DocType represents the type of document being viewed.
+type DocType int
+
+const (
+	DocReadme DocType = iota
+	DocChangelog
 )
 
 // SortMode represents the current sort order for the plugin list.
@@ -186,6 +196,14 @@ type FilterState struct {
 	active bool
 }
 
+// DocState holds state for the document viewer mode (README or CHANGELOG).
+type DocState struct {
+	content string  // Rendered document content
+	title   string  // Document title (plugin name + doc type)
+	scroll  int     // Scroll position
+	docType DocType // Type of document being viewed
+}
+
 // ProgressState holds state for operation progress.
 type ProgressState struct {
 	operations []Operation
@@ -197,15 +215,16 @@ type ProgressState struct {
 // Model is the main application model.
 // Fields ordered for optimal memory alignment (pointers/slices first, bools last).
 type Model struct {
-	client      claude.Client
 	err         error
+	client      claude.Client
 	styles      Styles
 	workingDir  string
-	main        MainState
 	keys        KeyBindings
+	filteredIdx []int
 	filter      FilterState
 	plugins     []PluginState
-	filteredIdx []int
+	main        MainState
+	doc         DocState
 	progress    ProgressState
 	mode        Mode
 	height      int
@@ -459,6 +478,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProgress(msg)
 	case ModeSummary:
 		return m.updateError(msg)
+	case ModeDoc:
+		return m.updateDoc(msg)
 	}
 
 	return m, nil
@@ -489,6 +510,8 @@ func (m *Model) View() string {
 		return m.renderProgress(m.styles)
 	case ModeSummary:
 		return m.renderErrorSummary(m.styles)
+	case ModeDoc:
+		return m.renderDoc(m.styles)
 	}
 
 	return ""
