@@ -251,16 +251,20 @@ func TestToggleScopeInstalledPlugin(t *testing.T) {
 	}
 	m.selectedIdx = 0
 
-	// Local installed -> Local pending (starts with Local, then cycles)
+	// Local installed -> Local pending (same scope = install, not migrate)
 	m.toggleScope()
 	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
 		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
-	// Local pending -> Project pending
+	// Local pending -> Project pending (different scope = migrate)
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
-		t.Errorf("after second toggle = %v, want OpInstall with project", op)
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpMigrate || op.Scope != claude.ScopeProject {
+		t.Errorf("after second toggle = %v, want OpMigrate with project", op)
+	}
+	// Also verify original scope is preserved
+	if op := m.main.pendingOps["test@marketplace"]; op.OriginalScope != claude.ScopeLocal {
+		t.Errorf("migration should preserve original scope, got %v", op.OriginalScope)
 	}
 }
 

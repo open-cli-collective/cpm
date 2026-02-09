@@ -122,6 +122,8 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
 		case OpUninstall:
 			return styles.Pending.Render("[→ UNINSTALL]")
+		case OpMigrate:
+			return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
 		case OpEnable:
 			return styles.Pending.Render("[→ ENABLED]")
 		case OpDisable:
@@ -262,6 +264,8 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 		pendingStr = "Will be installed to " + string(op.Scope)
 	case OpUninstall:
 		pendingStr = "Will be uninstalled"
+	case OpMigrate:
+		pendingStr = "Will be moved from " + string(op.OriginalScope) + " to " + string(op.Scope)
 	case OpEnable:
 		pendingStr = "Will be enabled"
 	case OpDisable:
@@ -360,6 +364,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	// Count operations by type
 	installs := 0
 	uninstalls := 0
+	migrations := 0
 	enables := 0
 	disables := 0
 
@@ -370,13 +375,14 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 
 	// Sort operations by type for consistent display
-	// Uninstalls, then installs, then enables, then disables
+	// Uninstalls, then migrations, then installs, then enables, then disables
 	sort.Slice(operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
-			OpInstall:   1,
-			OpEnable:    2,
-			OpDisable:   3,
+			OpMigrate:   1,
+			OpInstall:   2,
+			OpEnable:    3,
+			OpDisable:   4,
 		}
 		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
 	})
@@ -390,6 +396,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 		case OpUninstall:
 			action = styles.Pending.Render("Uninstall: ") + op.PluginID
 			uninstalls++
+		case OpMigrate:
+			action = styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
+			migrations++
 		case OpEnable:
 			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
 			enables++
@@ -409,6 +418,9 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	}
 	if uninstalls > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(uninstalls)+" uninstall(s)")
+	}
+	if migrations > 0 {
+		summaryParts = append(summaryParts, strconv.Itoa(migrations)+" migration(s)")
 	}
 	if enables > 0 {
 		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
@@ -467,6 +479,9 @@ func (m *Model) renderProgress(styles Styles) string {
 		case OpUninstall:
 			action = "Uninstall"
 			scopeStr = ""
+		case OpMigrate:
+			action = "Move"
+			scopeStr = " (" + string(op.OriginalScope) + " → " + string(op.Scope) + ")"
 		case OpEnable:
 			action = "Enable"
 			scopeStr = ""
