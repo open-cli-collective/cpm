@@ -87,7 +87,14 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 	// Build the line
 	var parts []string
 
-	// Selection indicator
+	// Bulk selection checkbox
+	if m.main.bulkSelected[plugin.ID] {
+		parts = append(parts, "[x]")
+	} else {
+		parts = append(parts, "[ ]")
+	}
+
+	// Cursor indicator
 	if selected {
 		parts = append(parts, ">")
 	} else {
@@ -362,10 +369,17 @@ func (m *Model) renderHelp(styles Styles) string {
 	// Show current sort mode
 	sortInfo := "s: " + m.main.sortMode.String()
 
-	if len(m.main.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • c: config • Enter: apply • Esc: clear • /: filter • ?: readme • C: changelog • " + mouseIndicator + " • q: quit")
+	// Show selection count if any
+	selectionInfo := ""
+	if len(m.main.bulkSelected) > 0 {
+		selectionInfo = fmt.Sprintf(" • %d selected", len(m.main.bulkSelected))
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • c: config • /: filter • ?: readme • C: changelog • " + mouseIndicator + " • q: quit")
+
+	baseHelp := "↑↓: navigate • Space: select • a/A: all/none • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • c: config"
+	if len(m.main.pendingOps) > 0 {
+		return styles.Help.Render(baseHelp + " • Enter: apply • Esc: clear • /: filter • ?: readme • C: changelog • " + mouseIndicator + selectionInfo + " • q: quit")
+	}
+	return styles.Help.Render(baseHelp + " • /: filter • ?: readme • C: changelog • " + mouseIndicator + selectionInfo + " • q: quit")
 }
 
 // renderDoc renders the document view (README or CHANGELOG).

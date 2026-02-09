@@ -186,6 +186,7 @@ func parsePluginID(id string) (name, marketplace string) {
 // MainState holds state for the main two-pane view.
 type MainState struct {
 	pendingOps      map[string]Operation
+	bulkSelected    map[string]bool // Tracks plugins selected for bulk operations
 	sortMode        SortMode
 	showConfirm     bool
 	showQuitConfirm bool
@@ -258,6 +259,7 @@ func NewModelWithTheme(client claude.Client, workingDir string, theme Theme) *Mo
 		keys:       DefaultKeyBindings(),
 		main: MainState{
 			pendingOps:   make(map[string]Operation),
+			bulkSelected: make(map[string]bool),
 			mouseEnabled: true,
 		},
 		progress: ProgressState{
