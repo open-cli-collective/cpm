@@ -345,10 +345,13 @@ func (m *Model) renderHelp(styles Styles) string {
 		mouseIndicator = "m: mouse on"
 	}
 
+	// Show current sort mode
+	sortInfo := "s: " + m.main.sortMode.String()
+
 	if len(m.main.pendingOps) > 0 {
-		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • Enter: apply • Esc: clear • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+		return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • Enter: apply • Esc: clear • /: filter • " + mouseIndicator + " • q: quit")
 	}
-	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • /: filter • r: refresh • " + mouseIndicator + " • q: quit")
+	return styles.Help.Render("↑↓: navigate • l/p/u: install/uninstall • Tab: toggle • " + sortInfo + " • /: filter • " + mouseIndicator + " • q: quit")
 }
 
 // renderConfirmation renders the confirmation modal.
