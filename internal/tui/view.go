@@ -126,20 +126,7 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
 	if op, ok := m.main.pendingOps[plugin.ID]; ok {
-		switch op.Type {
-		case OpInstall:
-			return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
-		case OpUninstall:
-			return styles.Pending.Render("[→ UNINSTALL]")
-		case OpMigrate:
-			return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
-		case OpUpdate:
-			return styles.Pending.Render("[→ UPDATE]")
-		case OpEnable:
-			return styles.Pending.Render("[→ ENABLED]")
-		case OpDisable:
-			return styles.Pending.Render("[→ DISABLED]")
-		}
+		return renderPendingIndicator(op, styles)
 	}
 
 	// Show current scope
@@ -179,6 +166,26 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	}
 
 	return result
+}
+
+// renderPendingIndicator renders the pending operation indicator for a plugin.
+func renderPendingIndicator(op Operation, styles Styles) string {
+	switch op.Type {
+	case OpInstall:
+		return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+	case OpUninstall:
+		return styles.Pending.Render("[→ UNINSTALL]")
+	case OpMigrate:
+		return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
+	case OpUpdate:
+		return styles.Pending.Render("[→ UPDATE]")
+	case OpEnable:
+		return styles.Pending.Render("[→ ENABLED]")
+	case OpDisable:
+		return styles.Pending.Render("[→ DISABLED]")
+	default:
+		return ""
+	}
 }
 
 // renderDetails renders the right pane with plugin details.
@@ -450,15 +457,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	lines = append(lines, styles.Header.Render(" Apply Changes? "))
 	lines = append(lines, "")
 
-	// Count operations by type
-	installs := 0
-	uninstalls := 0
-	migrations := 0
-	updates := 0
-	enables := 0
-	disables := 0
-
-	// Display operations grouped by type
+	// Collect and sort operations by type
 	var operations []Operation
 	for _, op := range m.main.pendingOps {
 		operations = append(operations, op)
@@ -479,54 +478,13 @@ func (m *Model) renderConfirmation(styles Styles) string {
 	})
 
 	for _, op := range operations {
-		var action string
-		switch op.Type {
-		case OpInstall:
-			action = styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
-			installs++
-		case OpUninstall:
-			action = styles.Pending.Render("Uninstall: ") + op.PluginID
-			uninstalls++
-		case OpMigrate:
-			action = styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
-			migrations++
-		case OpUpdate:
-			action = styles.ScopeProject.Render("Update: ") + op.PluginID
-			updates++
-		case OpEnable:
-			action = styles.ScopeProject.Render("Enable: ") + op.PluginID
-			enables++
-		case OpDisable:
-			action = styles.Pending.Render("Disable: ") + op.PluginID
-			disables++
-		}
-		lines = append(lines, "  "+action)
+		lines = append(lines, "  "+formatOperationLine(op, styles))
 	}
 
 	lines = append(lines, "")
 
 	// Build summary line
-	var summaryParts []string
-	if installs > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(installs)+" install(s)")
-	}
-	if uninstalls > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(uninstalls)+" uninstall(s)")
-	}
-	if migrations > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(migrations)+" migration(s)")
-	}
-	if updates > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(updates)+" update(s)")
-	}
-	if enables > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(enables)+" enable(s)")
-	}
-	if disables > 0 {
-		summaryParts = append(summaryParts, strconv.Itoa(disables)+" disable(s)")
-	}
-
-	summary := strings.Join(summaryParts, ", ")
+	summary := buildOperationSummary(operations)
 	lines = append(lines, styles.DetailLabel.Render(summary))
 	lines = append(lines, "")
 	lines = append(lines, "Press Enter to confirm, Esc to cancel")
@@ -540,6 +498,55 @@ func (m *Model) renderConfirmation(styles Styles) string {
 			Padding(1, 2).
 			Render(strings.Join(lines, "\n")),
 	)
+}
+
+// formatOperationLine formats a single operation for display in the confirmation modal.
+func formatOperationLine(op Operation, styles Styles) string {
+	switch op.Type {
+	case OpInstall:
+		return styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
+	case OpUninstall:
+		return styles.Pending.Render("Uninstall: ") + op.PluginID
+	case OpMigrate:
+		return styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
+	case OpUpdate:
+		return styles.ScopeProject.Render("Update: ") + op.PluginID
+	case OpEnable:
+		return styles.ScopeProject.Render("Enable: ") + op.PluginID
+	case OpDisable:
+		return styles.Pending.Render("Disable: ") + op.PluginID
+	default:
+		return ""
+	}
+}
+
+// buildOperationSummary builds a summary string counting operations by type.
+func buildOperationSummary(operations []Operation) string {
+	counts := make(map[OperationType]int)
+	for _, op := range operations {
+		counts[op.Type]++
+	}
+
+	type labeledCount struct {
+		label  string
+		opType OperationType
+	}
+	order := []labeledCount{
+		{"install(s)", OpInstall},
+		{"uninstall(s)", OpUninstall},
+		{"migration(s)", OpMigrate},
+		{"update(s)", OpUpdate},
+		{"enable(s)", OpEnable},
+		{"disable(s)", OpDisable},
+	}
+
+	var parts []string
+	for _, lc := range order {
+		if c := counts[lc.opType]; c > 0 {
+			parts = append(parts, strconv.Itoa(c)+" "+lc.label)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // renderProgress renders the progress modal.
