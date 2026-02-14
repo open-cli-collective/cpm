@@ -29,7 +29,7 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 - Shell out vs. library: Claude Code has no Go SDK; CLI is the only integration point
 - JSON parsing: Uses `claude plugin list --json --available` for structured data
 - Manifest parsing: Handles flexible author field (string or object format)
-- Install/Uninstall use enable/disable: `InstallPlugin` calls `claude plugin enable`, `UninstallPlugin` calls `claude plugin disable` (semantically correct for project-scoped operations)
+- Install/Uninstall use install/uninstall: `InstallPlugin` calls `claude plugin install`, `UninstallPlugin` calls `claude plugin uninstall`. `EnablePlugin`/`DisablePlugin` use `enable`/`disable` for toggling state of already-installed plugins.
 - Settings as source of truth: Project settings files (`.claude/settings.json`, `.claude/settings.local.json`) determine which plugins are enabled for a project, not the CLI's `projectPath` field
 
 ## Invariants
