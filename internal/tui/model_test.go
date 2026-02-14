@@ -1857,3 +1857,402 @@ func TestToggleScopeSingleScopeWorks(t *testing.T) {
 		t.Errorf("Scope = %v, want ScopeLocal", op.Scopes[0])
 	}
 }
+
+// --- Scope Dialog Tests (plugin-scope-mgmt.AC6) ---
+
+// TestOpenScopeDialogForSelectedSingleScope tests opening scope dialog for a single-scope plugin.
+// Verifies plugin-scope-mgmt.AC6.1: dialog opens with checkboxes pre-checked for installed scopes.
+func TestOpenScopeDialogForSelectedSingleScope(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if m.main.scopeDialog.pluginID != "test@marketplace" {
+		t.Errorf("pluginID = %q, want 'test@marketplace'", m.main.scopeDialog.pluginID)
+	}
+	// Verify Local scope is checked
+	if !m.main.scopeDialog.scopes[2] {
+		t.Error("Local scope should be checked (scopes[2] = true)")
+	}
+	// Verify User and Project are not checked
+	if m.main.scopeDialog.scopes[0] || m.main.scopeDialog.scopes[1] {
+		t.Error("User and Project scopes should not be checked")
+	}
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor = %d, want 0", m.main.scopeDialog.cursor)
+	}
+}
+
+// TestOpenScopeDialogForSelectedMultiScope tests opening scope dialog for multi-scope plugin.
+func TestOpenScopeDialogForSelectedMultiScope(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:    true,
+			claude.ScopeProject: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.openScopeDialogForSelected()
+
+	// Verify User and Project are checked, Local is not
+	if !m.main.scopeDialog.scopes[0] {
+		t.Error("User scope should be checked (scopes[0] = true)")
+	}
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be checked (scopes[1] = true)")
+	}
+	if m.main.scopeDialog.scopes[2] {
+		t.Error("Local scope should not be checked (scopes[2] = false)")
+	}
+}
+
+// TestOpenScopeDialogForSelectedNotInstalled tests opening dialog for uninstalled plugin.
+func TestOpenScopeDialogForSelectedNotInstalled(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
+	}
+	m.selectedIdx = 0
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	// No scopes should be checked
+	if m.main.scopeDialog.scopes[0] || m.main.scopeDialog.scopes[1] || m.main.scopeDialog.scopes[2] {
+		t.Error("no scopes should be checked for uninstalled plugin")
+	}
+}
+
+// TestUpdateScopeDialogUpDown tests cursor navigation with up/down keys.
+// Verifies plugin-scope-mgmt.AC6.2: Up/Down moves cursor through dialog items.
+func TestUpdateScopeDialogUpDown(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		cursor:         1,
+		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true},
+	}
+	m.keys = DefaultKeyBindings()
+
+	// Move down
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 2 {
+		t.Errorf("cursor after down = %d, want 2", m.main.scopeDialog.cursor)
+	}
+
+	// Move up
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 1 {
+		t.Errorf("cursor after up = %d, want 1", m.main.scopeDialog.cursor)
+	}
+
+	// Move up to 0
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor after up = %d, want 0", m.main.scopeDialog.cursor)
+	}
+
+	// Try to move up past 0 (should stay at 0)
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor should not go below 0, got %d", m.main.scopeDialog.cursor)
+	}
+}
+
+// TestUpdateScopeDialogSpaceToggle tests space toggling checkbox state.
+// Verifies plugin-scope-mgmt.AC6.2: Space toggles checkbox at cursor.
+func TestUpdateScopeDialogSpaceToggle(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		cursor:         0,
+		scopes:         [3]bool{false, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+
+	// Toggle on User scope
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if !m.main.scopeDialog.scopes[0] {
+		t.Error("User scope should be checked after space")
+	}
+
+	// Move to Project
+	msg = tea.KeyMsg{Type: tea.KeyDown}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	// Toggle on Project scope
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be checked after space")
+	}
+
+	// Toggle off Project scope
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be unchecked after second space")
+	}
+}
+
+// TestUpdateScopeDialogEnter tests Enter key applies delta and returns to main.
+// Verifies plugin-scope-mgmt.AC6.2: Enter computes delta and creates pending operations.
+func TestUpdateScopeDialogEnter(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.keys = DefaultKeyBindings()
+
+	// Press Enter to apply
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+
+	// Verify pending operation was created (user scope install)
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation after Enter")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
+	}
+}
+
+// TestUpdateScopeDialogEscape tests Escape key cancels without applying.
+// Verifies plugin-scope-mgmt.AC6.2: Esc exits dialog without changes.
+func TestUpdateScopeDialogEscape(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.keys = DefaultKeyBindings()
+
+	// Press Escape
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+
+	// No pending operation should be created
+	if len(m.main.pendingOps) > 0 {
+		t.Error("no pending operations should be created on Escape")
+	}
+}
+
+// TestApplyScopeDialogDeltaCheckInstall tests delta computation for checking a new scope.
+// Verifies plugin-scope-mgmt.AC6.3: Checking new scope creates OpInstall.
+func TestApplyScopeDialogDeltaCheckInstall(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaCheckUninstall tests delta computation for unchecking a scope.
+// Verifies plugin-scope-mgmt.AC6.3: Unchecking scope creates OpUninstall.
+func TestApplyScopeDialogDeltaCheckUninstall(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{false, false, false},
+		originalScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpUninstall {
+		t.Errorf("Type = %v, want OpUninstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("Scopes = %v, want [ScopeLocal]", op.Scopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaMixed tests delta computation with both install and uninstall.
+// Verifies plugin-scope-mgmt.AC6.3: Mixed changes create OpScopeChange.
+func TestApplyScopeDialogDeltaMixed(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID: "test@marketplace",
+		// Originally installed at Project and Local, now checking User and unchecking Project
+		scopes:         [3]bool{true, false, true},
+		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true, claude.ScopeLocal: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpScopeChange {
+		t.Errorf("Type = %v, want OpScopeChange", op.Type)
+	}
+	// Should have User as install scope
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes (install) = %v, want [ScopeUser]", op.Scopes)
+	}
+	// Should have Project as uninstall scope
+	if len(op.UninstallScopes) != 1 || op.UninstallScopes[0] != claude.ScopeProject {
+		t.Errorf("UninstallScopes = %v, want [ScopeProject]", op.UninstallScopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaNoChange tests delta computation when nothing changes.
+// Verifies plugin-scope-mgmt.AC6.3: No changes clears pending operation.
+func TestApplyScopeDialogDeltaNoChange(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{claude.ScopeUser: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Type: OpInstall}
+
+	m.applyScopeDialogDelta()
+
+	// Pending operation should be cleared
+	if len(m.main.pendingOps) > 0 {
+		t.Error("pending operation should be cleared when no changes")
+	}
+}
+
+// TestRenderScopeDialog tests dialog rendering with checkbox display.
+// Verifies plugin-scope-mgmt.AC6.1 and AC6.4: Dialog renders with scope names and file paths.
+func TestRenderScopeDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.width = 100
+	m.height = 30
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, true},
+		cursor:   1,
+	}
+
+	output := m.renderScopeDialog(m.styles)
+
+	// Check title
+	if !strings.Contains(output, "test@marketplace") {
+		t.Error("output should contain plugin ID")
+	}
+
+	// Check scope names
+	if !strings.Contains(output, "User") {
+		t.Error("output should contain 'User' scope name")
+	}
+	if !strings.Contains(output, "Project") {
+		t.Error("output should contain 'Project' scope name")
+	}
+	if !strings.Contains(output, "Local") {
+		t.Error("output should contain 'Local' scope name")
+	}
+
+	// Check file paths (AC6.4)
+	if !strings.Contains(output, "~/.claude/settings.json") {
+		t.Error("output should contain User scope path")
+	}
+	if !strings.Contains(output, ".claude/settings.json") {
+		t.Error("output should contain Project scope path")
+	}
+	if !strings.Contains(output, ".claude/settings.local.json") {
+		t.Error("output should contain Local scope path")
+	}
+
+	// Check checkbox indicators
+	if !strings.Contains(output, "[x]") {
+		t.Error("output should contain checked boxes")
+	}
+	if !strings.Contains(output, "[ ]") {
+		t.Error("output should contain unchecked boxes")
+	}
+
+	// Check cursor indicator
+	if !strings.Contains(output, "> ") {
+		t.Error("output should contain cursor indicator")
+	}
+
+	// Check help text
+	if !strings.Contains(output, "space") || !strings.Contains(output, "Enter") || !strings.Contains(output, "Esc") {
+		t.Error("output should contain help text with space, Enter, and Esc instructions")
+	}
+}

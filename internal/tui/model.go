@@ -601,13 +601,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle scope dialog mode
 	if m.mode == ModeScopeDialog {
-		// Minimal handler — Esc exits. Phase 6 replaces this with full dialog handling.
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if matchesKey(keyMsg, m.keys.Escape) {
-				m.mode = ModeMain
-			}
-		}
-		return m, nil
+		return m.updateScopeDialog(msg)
 	}
 
 	// Handle mode-specific updates
@@ -643,6 +637,10 @@ func (m *Model) View() string {
 
 	if m.main.showConfirm {
 		return m.renderConfirmation(m.styles)
+	}
+
+	if m.mode == ModeScopeDialog {
+		return m.renderScopeDialog(m.styles)
 	}
 
 	switch m.mode {

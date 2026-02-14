@@ -33,6 +33,7 @@ type KeyBindings struct {
 	BulkToggle []string // Toggle bulk selection on current plugin
 	BulkAll    []string // Select all plugins
 	BulkNone   []string // Deselect all plugins
+	Scope      []string // Open multi-scope dialog
 }
 
 // DefaultKeyBindings returns the default key bindings.
@@ -63,6 +64,7 @@ func DefaultKeyBindings() KeyBindings {
 		BulkToggle: []string{" "}, // Space to toggle selection
 		BulkAll:    []string{"a"}, // Select all
 		BulkNone:   []string{"A"}, // Deselect all (shift+a)
+		Scope:      []string{"S"}, // Shift+s for scope dialog
 	}
 }
 

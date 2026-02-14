@@ -858,6 +858,64 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }
 
+// scopeDialogLabels shows the scope name and settings file path.
+var scopeDialogLabels = [3]struct {
+	name string
+	path string
+}{
+	{"User", "~/.claude/settings.json"},
+	{"Project", ".claude/settings.json"},
+	{"Local", ".claude/settings.local.json"},
+}
+
+// renderScopeDialog renders the scope selection dialog as a centered overlay.
+func (m *Model) renderScopeDialog(styles Styles) string {
+	dialog := &m.main.scopeDialog
+
+	var lines []string
+	lines = append(lines, styles.Header.Render(" Scopes for "+dialog.pluginID+" "))
+	lines = append(lines, "")
+
+	for i := 0; i < 3; i++ {
+		checkbox := "[ ]"
+		if dialog.scopes[i] {
+			checkbox = "[x]"
+		}
+
+		cursor := "  "
+		if dialog.cursor == i {
+			cursor = "> "
+		}
+
+		label := scopeDialogLabels[i]
+		line := cursor + checkbox + " " + label.name
+		// Pad to align paths
+		for len(line) < 25 {
+			line += " "
+		}
+		line += "(" + label.path + ")"
+
+		if dialog.cursor == i {
+			lines = append(lines, styles.Selected.Render(line))
+		} else {
+			lines = append(lines, "  "+line)
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, "  Press space to toggle, Enter to confirm, Esc to cancel")
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.Palette.Project).
+			Padding(1, 2).
+			Render(strings.Join(lines, "\n")),
+	)
+}
+
 // renderConfig renders the config viewer.
 func (m *Model) renderConfig(styles Styles) string {
 	// Header

@@ -83,7 +83,7 @@ func (m *Model) handleRegularKeyPress(msg tea.KeyMsg, keys KeyBindings) {
 		m.handleNavigationKeys(msg, keys)
 	case matchesKey(msg, keys.Local), matchesKey(msg, keys.Project),
 		matchesKey(msg, keys.Toggle), matchesKey(msg, keys.Uninstall),
-		matchesKey(msg, keys.Enable):
+		matchesKey(msg, keys.Enable), matchesKey(msg, keys.Scope):
 		m.handleOperationKeys(msg, keys)
 	case matchesKey(msg, keys.Sort):
 		m.cycleSortMode()
@@ -144,6 +144,108 @@ func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
 		m.selectForUpdate()
 	case matchesKey(msg, keys.Enable):
 		m.toggleEnablement()
+	case matchesKey(msg, keys.Scope):
+		m.openScopeDialogForSelected()
+	}
+}
+
+// openScopeDialogForSelected opens the scope dialog for the currently selected plugin.
+func (m *Model) openScopeDialogForSelected() {
+	plugin := m.getSelectedPlugin()
+	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+	m.openScopeDialog(plugin.ID, plugin.InstalledScopes, nil)
+}
+
+// scopeDialogScopes maps cursor index to scope.
+var scopeDialogScopes = [3]claude.Scope{claude.ScopeUser, claude.ScopeProject, claude.ScopeLocal}
+
+// updateScopeDialog handles input in the scope dialog mode.
+func (m *Model) updateScopeDialog(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	switch {
+	case matchesKey(keyMsg, m.keys.Up):
+		if m.main.scopeDialog.cursor > 0 {
+			m.main.scopeDialog.cursor--
+		}
+	case matchesKey(keyMsg, m.keys.Down):
+		if m.main.scopeDialog.cursor < 2 {
+			m.main.scopeDialog.cursor++
+		}
+	case matchesKey(keyMsg, []string{" "}): // Space toggles checkbox
+		m.main.scopeDialog.scopes[m.main.scopeDialog.cursor] = !m.main.scopeDialog.scopes[m.main.scopeDialog.cursor]
+	case matchesKey(keyMsg, m.keys.Enter):
+		m.applyScopeDialogDelta()
+		m.mode = ModeMain
+	case matchesKey(keyMsg, m.keys.Escape):
+		m.mode = ModeMain
+	}
+
+	return m, nil
+}
+
+// applyScopeDialogDelta computes the difference between original and current checkbox
+// state and generates pending operations.
+func (m *Model) applyScopeDialogDelta() {
+	dialog := &m.main.scopeDialog
+	original := dialog.originalScopes
+
+	var installScopes []claude.Scope
+	var uninstallScopes []claude.Scope
+
+	for i, scope := range scopeDialogScopes {
+		_, wasChecked := original[scope] // presence check, not value (disabled-but-present = checked)
+		isChecked := dialog.scopes[i]
+
+		if !wasChecked && isChecked {
+			installScopes = append(installScopes, scope)
+		} else if wasChecked && !isChecked {
+			uninstallScopes = append(uninstallScopes, scope)
+		}
+	}
+
+	// No changes — clear any existing pending op
+	if len(installScopes) == 0 && len(uninstallScopes) == 0 {
+		m.clearPending(dialog.pluginID)
+		return
+	}
+
+	// Generate operations based on delta
+	// If only installs, create OpInstall
+	// If only uninstalls, create OpUninstall
+	// If both, prefer the more specific operation
+	if len(uninstallScopes) > 0 && len(installScopes) == 0 {
+		// Pure uninstall (partial or full)
+		m.main.pendingOps[dialog.pluginID] = Operation{
+			PluginID:       dialog.pluginID,
+			Scopes:         uninstallScopes,
+			OriginalScopes: copyMap(original),
+			Type:           OpUninstall,
+		}
+	} else if len(installScopes) > 0 && len(uninstallScopes) == 0 {
+		// Pure install (adding scopes)
+		m.main.pendingOps[dialog.pluginID] = Operation{
+			PluginID:       dialog.pluginID,
+			Scopes:         installScopes,
+			OriginalScopes: copyMap(original),
+			Type:           OpInstall,
+		}
+	} else {
+		// Mixed: both install and uninstall — use OpScopeChange
+		// This carries both install and uninstall scope lists.
+		// Phase 7 execution handles uninstalls first, then installs.
+		m.main.pendingOps[dialog.pluginID] = Operation{
+			PluginID:        dialog.pluginID,
+			Scopes:          installScopes,
+			UninstallScopes: uninstallScopes,
+			OriginalScopes:  copyMap(original),
+			Type:            OpScopeChange,
+		}
 	}
 }
 
