@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -469,8 +470,15 @@ func TestExecuteOperationInstall(t *testing.T) {
 	}
 }
 
-// TestExecuteOperationUninstallUsesOriginalScope tests that executeOperation uses OriginalScope for uninstalls.
+// TestExecuteOperationUninstallUsesOriginalScope tests that executeOperation uninstalls from specified scopes.
+// This test has been updated for Phase 7 multi-scope behavior: OpUninstall now uses op.Scopes.
 func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write settings file so plugin is recognized as "in settings"
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	os.WriteFile(tmpDir+"/.claude/settings.json", []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+
 	calls := []struct {
 		pluginID string
 		scope    claude.Scope
@@ -486,10 +494,10 @@ func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
 		},
 	}
 
-	m := NewModel(client, "/test/project")
+	m := NewModel(client, tmpDir)
 	op := Operation{
 		PluginID:       "test@marketplace",
-		Scopes:         []claude.Scope{}, // marked for uninstall
+		Scopes:         []claude.Scope{claude.ScopeProject}, // list of scopes to uninstall from
 		Type:           OpUninstall,
 		OriginalScopes: map[claude.Scope]bool{claude.ScopeProject: true}, // was installed at project scope
 	}
@@ -2254,5 +2262,261 @@ func TestRenderScopeDialog(t *testing.T) {
 	// Check help text
 	if !strings.Contains(output, "space") || !strings.Contains(output, "Enter") || !strings.Contains(output, "Esc") {
 		t.Error("output should contain help text with space, Enter, and Esc instructions")
+	}
+}
+
+// TestExecuteOperationInstallWhenNotInSettings tests plugin-scope-mgmt.AC7.1
+// When a plugin is not in settings, OpInstall should call InstallPlugin.
+func TestExecuteOperationInstallWhenNotInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Track which methods were called
+	var installCalled, enableCalled bool
+	client.installFn = func(pluginID string, scope claude.Scope) error {
+		installCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("InstallPlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+	client.enableFn = func(pluginID string, scope claude.Scope) error {
+		enableCalled = true
+		return fmt.Errorf("should not call EnablePlugin when not in settings")
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if !installCalled {
+		t.Error("InstallPlugin was not called")
+	}
+	if enableCalled {
+		t.Error("EnablePlugin was unexpectedly called")
+	}
+}
+
+// TestExecuteOperationInstallWhenInSettings tests plugin-scope-mgmt.AC7.1
+// When a plugin already exists in settings, OpInstall should call EnablePlugin.
+func TestExecuteOperationInstallWhenInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Write settings file with plugin already installed at ScopeLocal
+	settingsPath := tmpDir + "/.claude/settings.local.json"
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	err := os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write settings file: %v", err)
+	}
+
+	// Track which methods were called
+	var installCalled, enableCalled bool
+	client.installFn = func(pluginID string, scope claude.Scope) error {
+		installCalled = true
+		return fmt.Errorf("should not call InstallPlugin when already in settings")
+	}
+	client.enableFn = func(pluginID string, scope claude.Scope) error {
+		enableCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("EnablePlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if installCalled {
+		t.Error("InstallPlugin was unexpectedly called")
+	}
+	if !enableCalled {
+		t.Error("EnablePlugin was not called")
+	}
+}
+
+// TestExecuteOperationUninstallWhenInSettings tests plugin-scope-mgmt.AC7.2
+// When a plugin exists in settings, OpUninstall should call UninstallPlugin.
+func TestExecuteOperationUninstallWhenInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Write settings file with plugin installed at ScopeLocal
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	err := os.WriteFile(tmpDir+"/.claude/settings.local.json", []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write settings file: %v", err)
+	}
+
+	// Track which methods were called
+	var uninstallCalled, disableCalled bool
+	client.uninstallFn = func(pluginID string, scope claude.Scope) error {
+		uninstallCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("UninstallPlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+	client.disableFn = func(pluginID string, scope claude.Scope) error {
+		disableCalled = true
+		return fmt.Errorf("should not call DisablePlugin when in settings")
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpUninstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if !uninstallCalled {
+		t.Error("UninstallPlugin was not called")
+	}
+	if disableCalled {
+		t.Error("DisablePlugin was unexpectedly called")
+	}
+}
+
+// TestExecuteOperationMultiScopeStopsOnFirstError tests plugin-scope-mgmt.AC7.3
+// Multi-scope operations should stop on first error and report which scope failed.
+func TestExecuteOperationMultiScopeStopsOnFirstError(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Track which scopes were attempted
+	var attemptedScopes []claude.Scope
+	client.installFn = func(pluginID string, scope claude.Scope) error {
+		attemptedScopes = append(attemptedScopes, scope)
+		// Fail on second scope
+		if len(attemptedScopes) == 2 {
+			return fmt.Errorf("network error")
+		}
+		return nil
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal, claude.ScopeProject, claude.ScopeUser},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	opMsg, ok := msg.(operationDoneMsg)
+	if !ok {
+		t.Fatalf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if opMsg.err == nil {
+		t.Error("expected error, got nil")
+	}
+
+	// Check error message includes scope name
+	if !strings.Contains(opMsg.err.Error(), "scope") {
+		t.Errorf("error message should include 'scope', got: %v", opMsg.err)
+	}
+	if !strings.Contains(opMsg.err.Error(), "project") {
+		t.Errorf("error message should include 'project' scope, got: %v", opMsg.err)
+	}
+
+	// Only first scope should have been attempted before failure
+	if len(attemptedScopes) != 2 {
+		t.Errorf("expected 2 scopes attempted, got %d", len(attemptedScopes))
+	}
+}
+
+// TestStartExecutionOperationOrdering tests plugin-scope-mgmt.AC7.4
+// Operations should be sorted in correct order: Uninstall, Migrate, ScopeChange, Update, Install, Enable, Disable
+func TestStartExecutionOperationOrdering(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test")
+	m.plugins = []PluginState{}
+	m.mode = ModeMain
+
+	// Create pending operations in random order
+	m.main.pendingOps = map[string]Operation{
+		"plugin1": {PluginID: "plugin1", Type: OpEnable, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin2": {PluginID: "plugin2", Type: OpInstall, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin3": {PluginID: "plugin3", Type: OpUninstall, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin4": {PluginID: "plugin4", Type: OpUpdate, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin5": {PluginID: "plugin5", Type: OpMigrate, Scopes: []claude.Scope{claude.ScopeLocal}, OriginalScopes: map[claude.Scope]bool{claude.ScopeProject: true}},
+		"plugin6": {PluginID: "plugin6", Type: OpDisable, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin7": {PluginID: "plugin7", Type: OpScopeChange, Scopes: []claude.Scope{claude.ScopeLocal}, UninstallScopes: []claude.Scope{claude.ScopeProject}},
+	}
+
+	// Call startExecution
+	model, _ := m.startExecution()
+	m = model.(*Model)
+
+	// Check ordering
+	expectedOrder := []OperationType{
+		OpUninstall,   // 0
+		OpMigrate,     // 1
+		OpScopeChange, // 2
+		OpUpdate,      // 3
+		OpInstall,     // 4
+		OpEnable,      // 5
+		OpDisable,     // 6
+	}
+
+	if len(m.progress.operations) != len(expectedOrder) {
+		t.Fatalf("expected %d operations, got %d", len(expectedOrder), len(m.progress.operations))
+	}
+
+	for i, op := range m.progress.operations {
+		if op.Type != expectedOrder[i] {
+			t.Errorf("operation %d: Type = %v, want %v", i, op.Type, expectedOrder[i])
+		}
 	}
 }

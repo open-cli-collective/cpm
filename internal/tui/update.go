@@ -585,15 +585,16 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		m.progress.operations = append(m.progress.operations, op)
 	}
 
-	// Sort operations: uninstalls first, then migrations, then updates, then installs, then enable/disable
+	// Sort operations: uninstalls first, then migrations, then scope changes, then updates, then installs, then enable/disable
 	sort.Slice(m.progress.operations, func(i, j int) bool {
 		typeOrder := map[OperationType]int{
-			OpUninstall: 0,
-			OpMigrate:   1,
-			OpUpdate:    2,
-			OpInstall:   3,
-			OpEnable:    4,
-			OpDisable:   5,
+			OpUninstall:   0,
+			OpMigrate:     1,
+			OpScopeChange: 2,
+			OpUpdate:      3,
+			OpInstall:     4,
+			OpEnable:      5,
+			OpDisable:     6,
 		}
 		orderI := typeOrder[m.progress.operations[i].Type]
 		orderJ := typeOrder[m.progress.operations[j].Type]
@@ -617,28 +618,109 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 }
 
 // executeOperation returns a command that executes a single operation.
+// For multi-scope operations, it loops over all target scopes, stopping on first error.
+// Settings are read once at the start to determine install vs enable, uninstall vs disable.
 func (m *Model) executeOperation(op Operation) tea.Cmd {
 	return func() tea.Msg {
 		var err error
+		// Read settings once to determine which command to use per scope
+		allScopes := claude.GetAllEnabledPlugins(m.workingDir)
+		pluginScopes := allScopes[op.PluginID] // may be nil if not in any settings
+
+		existsInSettings := func(scope claude.Scope) bool {
+			if pluginScopes == nil {
+				return false
+			}
+			_, exists := pluginScopes[scope]
+			return exists
+		}
+
 		switch op.Type {
 		case OpInstall:
-			err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
+			for _, scope := range op.Scopes {
+				if existsInSettings(scope) {
+					// Plugin already in settings — enable it
+					err = m.client.EnablePlugin(op.PluginID, scope)
+				} else {
+					// Plugin not in settings — install it
+					err = m.client.InstallPlugin(op.PluginID, scope)
+				}
+				if err != nil {
+					err = fmt.Errorf("scope %s: %w", scope, err)
+					break
+				}
+			}
 		case OpUninstall:
-			// For uninstalls, use the original scope to uninstall from the specific scope
-			err = m.client.UninstallPlugin(op.PluginID, firstScope(op.OriginalScopes))
+			for _, scope := range op.Scopes {
+				if existsInSettings(scope) {
+					err = m.client.UninstallPlugin(op.PluginID, scope)
+				} else {
+					err = m.client.DisablePlugin(op.PluginID, scope)
+				}
+				if err != nil {
+					err = fmt.Errorf("scope %s: %w", scope, err)
+					break
+				}
+			}
 		case OpMigrate:
-			// Migration = uninstall from old scope + install to new scope
-			err = m.client.UninstallPlugin(op.PluginID, firstScope(op.OriginalScopes))
+			// Migration = uninstall from original scope + install to new scope
+			// Single-scope to single-scope only
+			origScope := firstScope(op.OriginalScopes)
+			targetScope := op.Scopes[0]
+			err = m.client.UninstallPlugin(op.PluginID, origScope)
 			if err == nil {
-				err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
+				err = m.client.InstallPlugin(op.PluginID, targetScope)
 			}
 		case OpUpdate:
-			// Update is a reinstall at the same scope
-			err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
+			// Reinstall at each scope
+			for _, scope := range op.Scopes {
+				err = m.client.InstallPlugin(op.PluginID, scope)
+				if err != nil {
+					err = fmt.Errorf("scope %s: %w", scope, err)
+					break
+				}
+			}
 		case OpEnable:
-			err = m.client.EnablePlugin(op.PluginID, op.Scopes[0])
+			for _, scope := range op.Scopes {
+				err = m.client.EnablePlugin(op.PluginID, scope)
+				if err != nil {
+					err = fmt.Errorf("scope %s: %w", scope, err)
+					break
+				}
+			}
 		case OpDisable:
-			err = m.client.DisablePlugin(op.PluginID, op.Scopes[0])
+			for _, scope := range op.Scopes {
+				err = m.client.DisablePlugin(op.PluginID, scope)
+				if err != nil {
+					err = fmt.Errorf("scope %s: %w", scope, err)
+					break
+				}
+			}
+		case OpScopeChange:
+			// Mixed scope change: uninstall removed scopes first, then install new ones
+			allScopes := claude.GetAllEnabledPlugins(m.workingDir)
+			for _, scope := range op.UninstallScopes {
+				if _, exists := allScopes[op.PluginID][scope]; exists {
+					err = m.client.UninstallPlugin(op.PluginID, scope)
+				}
+				if err != nil {
+					err = fmt.Errorf("uninstall scope %s: %w", scope, err)
+					break
+				}
+			}
+			if err == nil {
+				for _, scope := range op.Scopes {
+					if _, exists := allScopes[op.PluginID][scope]; exists {
+						err = m.client.EnablePlugin(op.PluginID, scope)
+					} else {
+						err = m.client.InstallPlugin(op.PluginID, scope)
+					}
+					if err != nil {
+						err = fmt.Errorf("install scope %s: %w", scope, err)
+						break
+					}
+				}
+			}
 		default:
 			err = fmt.Errorf("unknown operation type: %d", op.Type)
 		}
