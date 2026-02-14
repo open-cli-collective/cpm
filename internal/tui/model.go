@@ -235,11 +235,11 @@ func copyMap(m map[claude.Scope]bool) map[claude.Scope]bool {
 type MainState struct {
 	pendingOps      map[string]Operation
 	bulkSelected    map[string]bool // Tracks plugins selected for bulk operations
+	scopeDialog     scopeDialogState
 	sortMode        SortMode
 	showConfirm     bool
 	showQuitConfirm bool
 	mouseEnabled    bool
-	scopeDialog     scopeDialogState
 }
 
 // FilterState holds state for filter mode.
@@ -265,10 +265,10 @@ type ConfigState struct {
 
 // scopeDialogState holds the state for the multi-scope dialog.
 type scopeDialogState struct {
-	pluginID       string
-	scopes         [3]bool              // checkbox state: [user, project, local]
 	originalScopes map[claude.Scope]bool // installed scopes before dialog
-	cursor         int                   // highlighted row (0-2)
+	pluginID       string
+	cursor         int     // highlighted row (0-2)
+	scopes         [3]bool // checkbox state: [user, project, local]
 }
 
 // ProgressState holds state for operation progress.
@@ -287,8 +287,8 @@ type Model struct {
 	styles      Styles
 	workingDir  string
 	keys        KeyBindings
-	config      ConfigState
 	main        MainState
+	config      ConfigState
 	plugins     []PluginState
 	filter      FilterState
 	filteredIdx []int

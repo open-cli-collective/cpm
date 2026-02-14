@@ -187,51 +187,48 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	return result
 }
 
+// applyScopeDelta returns a new scope set with uninstalls removed and installs added.
+func applyScopeDelta(base map[claude.Scope]bool, uninstall, install []claude.Scope) map[claude.Scope]bool {
+	result := copyMap(base)
+	for _, s := range uninstall {
+		delete(result, s)
+	}
+	for _, s := range install {
+		result[s] = true
+	}
+	return result
+}
+
 // renderPendingIndicator renders the pending operation indicator for a plugin.
 func renderPendingIndicator(op Operation, plugin PluginState, styles Styles) string {
+	pending := func(s string) string { return styles.Pending.Render(s) }
+
 	switch op.Type {
 	case OpInstall:
 		if plugin.IsInstalled() {
-			// Adding scopes to existing plugin: show current + new
-			newScopes := copyMap(plugin.InstalledScopes)
-			for _, s := range op.Scopes {
-				newScopes[s] = true
-			}
-			return styles.Pending.Render("[-> " + formatScopeSet(newScopes) + "]")
+			newScopes := applyScopeDelta(plugin.InstalledScopes, nil, op.Scopes)
+			return pending("[-> " + formatScopeSet(newScopes) + "]")
 		}
-		return styles.Pending.Render("[-> " + scopeLabel(op.Scopes[0]) + "]")
+		return pending("[-> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUninstall:
 		if len(op.OriginalScopes) > 1 || (plugin.IsInstalled() && !plugin.IsSingleScope()) {
-			// Partial uninstall: show remaining scopes
-			remaining := copyMap(plugin.InstalledScopes)
-			for _, s := range op.Scopes {
-				delete(remaining, s)
-			}
+			remaining := applyScopeDelta(plugin.InstalledScopes, op.Scopes, nil)
 			if len(remaining) > 0 {
-				current := formatScopeSet(plugin.InstalledScopes)
-				return styles.Pending.Render("[" + current + " -> " + formatScopeSet(remaining) + "]")
+				return pending("[" + formatScopeSet(plugin.InstalledScopes) + " -> " + formatScopeSet(remaining) + "]")
 			}
 		}
-		return styles.Pending.Render("[-> UNINSTALL]")
+		return pending("[-> UNINSTALL]")
 	case OpMigrate:
-		return styles.Pending.Render("[" + scopeLabel(firstScope(op.OriginalScopes)) + " -> " + scopeLabel(op.Scopes[0]) + "]")
+		return pending("[" + scopeLabel(firstScope(op.OriginalScopes)) + " -> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUpdate:
-		return styles.Pending.Render("[-> UPDATE]")
+		return pending("[-> UPDATE]")
 	case OpEnable:
-		return styles.Pending.Render("[-> ENABLED]")
+		return pending("[-> ENABLED]")
 	case OpDisable:
-		return styles.Pending.Render("[-> DISABLED]")
+		return pending("[-> DISABLED]")
 	case OpScopeChange:
-		// Show transition from current scopes to new scopes
-		newScopes := copyMap(plugin.InstalledScopes)
-		for _, s := range op.UninstallScopes {
-			delete(newScopes, s)
-		}
-		for _, s := range op.Scopes {
-			newScopes[s] = true
-		}
-		current := formatScopeSet(plugin.InstalledScopes)
-		return styles.Pending.Render("[" + current + " -> " + formatScopeSet(newScopes) + "]")
+		newScopes := applyScopeDelta(plugin.InstalledScopes, op.UninstallScopes, op.Scopes)
+		return pending("[" + formatScopeSet(plugin.InstalledScopes) + " -> " + formatScopeSet(newScopes) + "]")
 	default:
 		return ""
 	}
@@ -342,6 +339,15 @@ func (m *Model) getStatusText(plugin PluginState) string {
 	return status
 }
 
+// joinScopes returns a comma-separated string of scope names.
+func joinScopes(scopes []claude.Scope) string {
+	parts := make([]string, len(scopes))
+	for i, s := range scopes {
+		parts[i] = string(s)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // appendPendingChange appends pending change information if applicable.
 func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles Styles) []string {
 	op, ok := m.main.pendingOps[plugin.ID]
@@ -352,30 +358,9 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	var pendingStr string
 	switch op.Type {
 	case OpInstall:
-		targets := make([]string, len(op.Scopes))
-		for i, s := range op.Scopes {
-			targets[i] = string(s)
-		}
-		pendingStr = "Will be installed to " + strings.Join(targets, ", ")
+		pendingStr = "Will be installed to " + joinScopes(op.Scopes)
 	case OpUninstall:
-		if len(op.Scopes) > 0 && plugin.IsInstalled() && !plugin.IsSingleScope() {
-			// Partial uninstall
-			targets := make([]string, len(op.Scopes))
-			for i, s := range op.Scopes {
-				targets[i] = string(s)
-			}
-			remaining := copyMap(plugin.InstalledScopes)
-			for _, s := range op.Scopes {
-				delete(remaining, s)
-			}
-			if len(remaining) > 0 {
-				pendingStr = "Will be uninstalled from " + strings.Join(targets, ", ") + " (keeping " + formatScopeSet(remaining) + ")"
-			} else {
-				pendingStr = "Will be uninstalled"
-			}
-		} else {
-			pendingStr = "Will be uninstalled"
-		}
+		pendingStr = m.formatUninstallPending(op, plugin)
 	case OpMigrate:
 		pendingStr = "Will be moved from " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
 	case OpUpdate:
@@ -385,15 +370,7 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	case OpDisable:
 		pendingStr = "Will be disabled"
 	case OpScopeChange:
-		installTargets := make([]string, len(op.Scopes))
-		for i, s := range op.Scopes {
-			installTargets[i] = string(s)
-		}
-		uninstallTargets := make([]string, len(op.UninstallScopes))
-		for i, s := range op.UninstallScopes {
-			uninstallTargets[i] = string(s)
-		}
-		pendingStr = "Will add " + strings.Join(installTargets, ", ") + " and remove " + strings.Join(uninstallTargets, ", ")
+		pendingStr = "Will add " + joinScopes(op.Scopes) + " and remove " + joinScopes(op.UninstallScopes)
 	default:
 		pendingStr = "Unknown operation"
 	}
@@ -427,6 +404,17 @@ func (m *Model) appendComponents(lines []string, plugin PluginState, styles Styl
 	lines = appendComponentCategory(lines, "MCPs", plugin.Components.MCPs, styles)
 
 	return lines
+}
+
+// formatUninstallPending returns the pending string for an uninstall operation.
+func (m *Model) formatUninstallPending(op Operation, plugin PluginState) string {
+	if len(op.Scopes) > 0 && plugin.IsInstalled() && !plugin.IsSingleScope() {
+		remaining := applyScopeDelta(plugin.InstalledScopes, op.Scopes, nil)
+		if len(remaining) > 0 {
+			return "Will be uninstalled from " + joinScopes(op.Scopes) + " (keeping " + formatScopeSet(remaining) + ")"
+		}
+	}
+	return "Will be uninstalled"
 }
 
 // appendComponentCategory appends a category of components if non-empty.
@@ -645,6 +633,28 @@ func buildOperationSummary(operations []Operation) string {
 	return strings.Join(parts, ", ")
 }
 
+// formatOperationAction returns the action label and scope detail for a progress line.
+func formatOperationAction(op Operation) (string, string) {
+	switch op.Type {
+	case OpInstall:
+		return "Install", " (" + joinScopes(op.Scopes) + ")"
+	case OpUninstall:
+		return "Uninstall", ""
+	case OpMigrate:
+		return "Move", " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
+	case OpUpdate:
+		return "Update", ""
+	case OpEnable:
+		return "Enable", ""
+	case OpDisable:
+		return "Disable", ""
+	case OpScopeChange:
+		return "Scope change", " (+" + joinScopes(op.Scopes) + " -" + joinScopes(op.UninstallScopes) + ")"
+	default:
+		return "Unknown", ""
+	}
+}
+
 // renderProgress renders the progress modal.
 func (m *Model) renderProgress(styles Styles) string {
 	var lines []string
@@ -655,62 +665,18 @@ func (m *Model) renderProgress(styles Styles) string {
 		var status string
 		switch {
 		case i < m.progress.currentIdx:
-			// Completed
 			if i < len(m.progress.errors) && m.progress.errors[i] != "" {
 				status = "✗ Failed: " + m.progress.errors[i]
 			} else {
 				status = "✓ Done"
 			}
 		case i == m.progress.currentIdx:
-			// In progress
 			status = "⟳ Running..."
 		default:
-			// Pending
 			status = "○ Pending"
 		}
 
-		var action string
-		var scopeStr string
-
-		switch op.Type {
-		case OpInstall:
-			action = "Install"
-			targets := make([]string, len(op.Scopes))
-			for i, s := range op.Scopes {
-				targets[i] = string(s)
-			}
-			scopeStr = " (" + strings.Join(targets, ", ") + ")"
-		case OpUninstall:
-			action = "Uninstall"
-			scopeStr = ""
-		case OpMigrate:
-			action = "Move"
-			scopeStr = " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
-		case OpUpdate:
-			action = "Update"
-			scopeStr = ""
-		case OpEnable:
-			action = "Enable"
-			scopeStr = ""
-		case OpDisable:
-			action = "Disable"
-			scopeStr = ""
-		case OpScopeChange:
-			action = "Scope change"
-			installTargets := make([]string, len(op.Scopes))
-			for i, s := range op.Scopes {
-				installTargets[i] = string(s)
-			}
-			uninstallTargets := make([]string, len(op.UninstallScopes))
-			for i, s := range op.UninstallScopes {
-				uninstallTargets[i] = string(s)
-			}
-			scopeStr = " (+" + strings.Join(installTargets, ",") + " -" + strings.Join(uninstallTargets, ",") + ")"
-		default:
-			action = "Unknown"
-			scopeStr = ""
-		}
-
+		action, scopeStr := formatOperationAction(op)
 		line := status + " " + action + scopeStr + ": " + op.PluginID
 		lines = append(lines, "  "+line)
 	}

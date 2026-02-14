@@ -2280,7 +2280,7 @@ func TestExecuteOperationInstallWhenNotInSettings(t *testing.T) {
 		}
 		return nil
 	}
-	client.enableFn = func(pluginID string, scope claude.Scope) error {
+	client.enableFn = func(_ string, _ claude.Scope) error {
 		enableCalled = true
 		return fmt.Errorf("should not call EnablePlugin when not in settings")
 	}
@@ -2329,7 +2329,7 @@ func TestExecuteOperationInstallWhenInSettings(t *testing.T) {
 
 	// Track which methods were called
 	var installCalled, enableCalled bool
-	client.installFn = func(pluginID string, scope claude.Scope) error {
+	client.installFn = func(_ string, _ claude.Scope) error {
 		installCalled = true
 		return fmt.Errorf("should not call InstallPlugin when already in settings")
 	}
@@ -2391,7 +2391,7 @@ func TestExecuteOperationUninstallWhenInSettings(t *testing.T) {
 		}
 		return nil
 	}
-	client.disableFn = func(pluginID string, scope claude.Scope) error {
+	client.disableFn = func(_ string, _ claude.Scope) error {
 		disableCalled = true
 		return fmt.Errorf("should not call DisablePlugin when in settings")
 	}
@@ -2432,7 +2432,7 @@ func TestExecuteOperationMultiScopeStopsOnFirstError(t *testing.T) {
 
 	// Track which scopes were attempted
 	var attemptedScopes []claude.Scope
-	client.installFn = func(pluginID string, scope claude.Scope) error {
+	client.installFn = func(_ string, scope claude.Scope) error {
 		attemptedScopes = append(attemptedScopes, scope)
 		// Fail on second scope
 		if len(attemptedScopes) == 2 {
