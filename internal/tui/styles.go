@@ -200,8 +200,9 @@ func DefaultStylesWithTheme(theme Theme) Styles {
 
 // WithDimensions returns a new Styles with pane dimensions set.
 func (s Styles) WithDimensions(width, height int) Styles {
-	// Calculate pane widths (1/3 left, 2/3 right, minus borders and padding)
-	leftWidth := width/3 - 4
+	// Calculate pane widths — wider left pane to accommodate multi-scope indicators
+	// Worst case: "[USER, PROJECT, LOCAL]" = 23 chars + plugin name
+	leftWidth := max(width/3-4, 25)
 	rightWidth := width - leftWidth - 8
 
 	// Calculate heights (minus borders, header, footer)
