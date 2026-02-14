@@ -1,6 +1,6 @@
 # cpm - Claude Plugin Manager
 
-Last verified: 2026-01-23
+Last verified: 2026-02-14
 
 A TUI application for managing Claude Code plugins with clear visibility into installation scopes.
 

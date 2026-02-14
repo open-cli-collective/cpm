@@ -1,6 +1,6 @@
 # Claude CLI Client
 
-Last verified: 2026-01-26
+Last verified: 2026-02-14
 
 ## Purpose
 
