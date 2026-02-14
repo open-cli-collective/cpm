@@ -2520,3 +2520,127 @@ func TestStartExecutionOperationOrdering(t *testing.T) {
 		}
 	}
 }
+
+// TestFormatScopeSet_SingleScope tests AC4.1
+// Call formatScopeSet with single scope map, verify output is the scope label (e.g., "USER")
+func TestFormatScopeSet_SingleScope(t *testing.T) {
+	scopes := map[claude.Scope]bool{claude.ScopeUser: true}
+	result := formatScopeSet(scopes)
+	expected := "USER"
+	if result != expected {
+		t.Errorf("formatScopeSet(single scope) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatScopeSet_MultiScope tests AC4.1
+// Call with {ScopeUser: true, ScopeLocal: true}, verify output is "USER, LOCAL"
+func TestFormatScopeSet_MultiScope(t *testing.T) {
+	scopes := map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true}
+	result := formatScopeSet(scopes)
+	expected := "USER, LOCAL"
+	if result != expected {
+		t.Errorf("formatScopeSet(multi scope) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatScopeSet_Ordering tests AC4.1
+// Call with all 3 scopes, verify output order is "USER, PROJECT, LOCAL" (canonical order)
+func TestFormatScopeSet_Ordering(t *testing.T) {
+	scopes := map[claude.Scope]bool{
+		claude.ScopeUser:    true,
+		claude.ScopeProject: true,
+		claude.ScopeLocal:   true,
+	}
+	result := formatScopeSet(scopes)
+	expected := "USER, PROJECT, LOCAL"
+	if result != expected {
+		t.Errorf("formatScopeSet(all scopes) = %q, want %q", result, expected)
+	}
+}
+
+// TestRenderPendingIndicator_PartialUninstall tests AC4.2
+// Create Operation with OpUninstall and multi-scope PluginState, verify output contains transition text
+func TestRenderPendingIndicator_PartialUninstall(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID:       "test@marketplace",
+		Type:           OpUninstall,
+		Scopes:         []claude.Scope{claude.ScopeLocal},
+		OriginalScopes: map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(partial uninstall) should contain transition arrow '->': %q", result)
+	}
+	if !strings.Contains(result, "USER") {
+		t.Errorf("renderPendingIndicator(partial uninstall) should contain 'USER': %q", result)
+	}
+}
+
+// TestRenderPendingIndicator_ScopeChange tests AC4.2
+// Create OpScopeChange operation, verify output shows scope transition
+func TestRenderPendingIndicator_ScopeChange(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID:        "test@marketplace",
+		Type:            OpScopeChange,
+		Scopes:          []claude.Scope{claude.ScopeProject},
+		UninstallScopes: []claude.Scope{claude.ScopeLocal},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(scope change) should contain transition arrow '->': %q", result)
+	}
+	if !strings.Contains(result, "LOCAL") {
+		t.Errorf("renderPendingIndicator(scope change) should contain 'LOCAL': %q", result)
+	}
+	if !strings.Contains(result, "PROJECT") {
+		t.Errorf("renderPendingIndicator(scope change) should contain 'PROJECT': %q", result)
+	}
+}
+
+// TestRenderPendingIndicator_MultiScopeInstall tests AC4.2
+// Create OpInstall on existing multi-scope plugin, verify output shows combined scopes
+func TestRenderPendingIndicator_MultiScopeInstall(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeUser: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID: "test@marketplace",
+		Type:     OpInstall,
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain transition arrow '->': %q", result)
+	}
+	// Should show combined scopes (USER and LOCAL)
+	if !strings.Contains(result, "USER") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain 'USER': %q", result)
+	}
+	if !strings.Contains(result, "LOCAL") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain 'LOCAL': %q", result)
+	}
+}
