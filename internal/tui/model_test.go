@@ -1640,3 +1640,220 @@ func TestToggleEnablementUsesInstalledScope(t *testing.T) {
 		})
 	}
 }
+
+// --- Multi-scope context-aware key behavior tests (plugin-scope-mgmt.AC5) ---
+
+// TestSelectForInstallMultiScopeOpensDialog tests AC5.1: multi-scope on install key opens scope dialog
+func TestSelectForInstallMultiScopeOpensDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:  true,
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.selectForInstall(claude.ScopeProject)
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+	// Verify dialog state
+	if m.main.scopeDialog.pluginID != "test@marketplace" {
+		t.Errorf("scopeDialog.pluginID = %q, want 'test@marketplace'", m.main.scopeDialog.pluginID)
+	}
+	// Verify Project scope is pre-toggled
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be pre-toggled (scopes[1])")
+	}
+}
+
+// TestSelectForInstallSingleScopeCreatesOp tests that single-scope plugins still create operations
+func TestSelectForInstallSingleScopeCreatesOp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.selectForInstall(claude.ScopeProject)
+
+	// Should NOT transition to scope dialog; should create migrate operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpMigrate {
+		t.Errorf("Type = %v, want OpMigrate", op.Type)
+	}
+}
+
+// TestSelectForUninstallMultiScopeOpensDialog tests AC5.2: multi-scope on uninstall key opens dialog
+func TestSelectForUninstallMultiScopeOpensDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:    true,
+			claude.ScopeProject: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.selectForUninstall()
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+	// Verify dialog state contains original scopes
+	if !m.main.scopeDialog.scopes[0] || !m.main.scopeDialog.scopes[1] {
+		t.Error("dialog should preserve original scopes")
+	}
+}
+
+// TestSelectForUninstallSingleScopeCreatesOp tests that single-scope plugins still create uninstall ops
+func TestSelectForUninstallSingleScopeCreatesOp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+
+	m.selectForUninstall()
+
+	// Should NOT transition to scope dialog; should create uninstall operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpUninstall {
+		t.Errorf("Type = %v, want OpUninstall", op.Type)
+	}
+}
+
+// TestToggleEnablementMultiScopeOpensDialog tests AC5.3: multi-scope on toggle enablement opens dialog
+func TestToggleEnablementMultiScopeOpensDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:  true,
+			claude.ScopeLocal: true,
+		}, Enabled: true},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleEnablement()
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+}
+
+// TestToggleEnablementSingleScopeCreatesOp tests that single-scope plugins still toggle enable/disable
+func TestToggleEnablementSingleScopeCreatesOp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}, Enabled: true},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleEnablement()
+
+	// Should NOT transition to scope dialog; should create disable operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpDisable {
+		t.Errorf("Type = %v, want OpDisable", op.Type)
+	}
+}
+
+// TestToggleScopeMultiScopeIsNoOp tests AC5.4: Tab key is no-op on multi-scope plugins
+func TestToggleScopeMultiScopeIsNoOp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:  true,
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleScope()
+
+	// Should be no-op: mode should stay ModeMain, no pending operations
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain (should not change)", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("toggleScope should be no-op for multi-scope, no operations should be created")
+	}
+}
+
+// TestToggleScopeSingleScopeWorks tests that Tab key still works for single-scope plugins
+func TestToggleScopeSingleScopeWorks(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleScope()
+
+	// Should create operation: none -> local
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("Scope = %v, want ScopeLocal", op.Scopes[0])
+	}
+}

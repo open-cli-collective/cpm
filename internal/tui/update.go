@@ -285,9 +285,15 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 			}
 		}
 
-		// Check if plugin is already installed at a different scope
+		// Multi-scope plugin: open scope dialog with this scope pre-toggled
+		if plugin.IsInstalled() && !plugin.IsSingleScope() {
+			m.openScopeDialog(plugin.ID, plugin.InstalledScopes, &scope)
+			return // Dialog handles single plugin at a time
+		}
+
+		// Single-scope or not installed: existing behavior
 		if plugin.IsInstalled() && !plugin.HasScope(scope) {
-			// Create migrate operation (move from current scope to new scope)
+			// Migrate from current scope to new scope
 			m.main.pendingOps[plugin.ID] = Operation{
 				PluginID:       plugin.ID,
 				Scopes:         []claude.Scope{scope},
@@ -297,7 +303,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 			continue
 		}
 
-		// Create install operation
+		// Install
 		m.main.pendingOps[plugin.ID] = Operation{
 			PluginID: plugin.ID,
 			Scopes:   []claude.Scope{scope},
@@ -311,6 +317,11 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 func (m *Model) toggleScope() {
 	plugin := m.getSelectedPlugin()
 	if plugin == nil || plugin.IsGroupHeader {
+		return
+	}
+
+	// Tab no-ops on multi-scope plugins — use S key instead
+	if plugin.IsInstalled() && !plugin.IsSingleScope() {
 		return
 	}
 
@@ -379,7 +390,7 @@ func (m *Model) selectForUninstall() {
 
 	for _, plugin := range plugins {
 		if plugin.IsGroupHeader || !plugin.IsInstalled() {
-			continue // Can't uninstall if not installed or if group header
+			continue
 		}
 
 		// If already pending uninstall, clear it (toggle off)
@@ -390,10 +401,16 @@ func (m *Model) selectForUninstall() {
 			}
 		}
 
-		// Create uninstall operation
+		// Multi-scope: open scope dialog to choose which scopes to remove
+		if !plugin.IsSingleScope() {
+			m.openScopeDialog(plugin.ID, plugin.InstalledScopes, nil)
+			return // Dialog handles single plugin
+		}
+
+		// Single-scope: uninstall from that scope
 		m.main.pendingOps[plugin.ID] = Operation{
 			PluginID:       plugin.ID,
-			Scopes:         []claude.Scope{},
+			Scopes:         []claude.Scope{plugin.SingleScope()},
 			OriginalScopes: copyMap(plugin.InstalledScopes),
 			Type:           OpUninstall,
 		}

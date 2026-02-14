@@ -36,6 +36,8 @@ const (
 	ModeDoc
 	// ModeConfig shows plugin configuration files.
 	ModeConfig
+	// ModeScopeDialog shows the scope selection dialog.
+	ModeScopeDialog
 )
 
 // DocType represents the type of document being viewed.
@@ -237,6 +239,7 @@ type MainState struct {
 	showConfirm     bool
 	showQuitConfirm bool
 	mouseEnabled    bool
+	scopeDialog     scopeDialogState
 }
 
 // FilterState holds state for filter mode.
@@ -258,6 +261,14 @@ type ConfigState struct {
 	content string // Rendered config content
 	title   string // Title for config viewer
 	scroll  int    // Scroll position
+}
+
+// scopeDialogState holds the state for the multi-scope dialog.
+type scopeDialogState struct {
+	pluginID       string
+	scopes         [3]bool              // checkbox state: [user, project, local]
+	originalScopes map[claude.Scope]bool // installed scopes before dialog
+	cursor         int                   // highlighted row (0-2)
 }
 
 // ProgressState holds state for operation progress.
@@ -501,6 +512,12 @@ func (m *Model) toggleEnablement() {
 		}
 	}
 
+	// Multi-scope: open scope dialog to choose which scope to toggle
+	if !plugin.IsSingleScope() {
+		m.openScopeDialog(plugin.ID, plugin.InstalledScopes, nil)
+		return
+	}
+
 	// Determine operation type based on current enabled state
 	var opType OperationType
 	if plugin.Enabled {
@@ -522,6 +539,32 @@ func (m *Model) toggleEnablement() {
 		PluginID: plugin.ID,
 		Scopes:   []claude.Scope{plugin.SingleScope()},
 		Type:     opType,
+	}
+}
+
+// openScopeDialog transitions to the scope dialog for the given plugin.
+// preToggle optionally toggles one scope before showing the dialog.
+func (m *Model) openScopeDialog(pluginID string, installedScopes map[claude.Scope]bool, preToggle *claude.Scope) {
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       pluginID,
+		originalScopes: copyMap(installedScopes),
+	}
+	// Initialize checkboxes from current installed scopes (presence, not enabled value)
+	_, m.main.scopeDialog.scopes[0] = installedScopes[claude.ScopeUser]
+	_, m.main.scopeDialog.scopes[1] = installedScopes[claude.ScopeProject]
+	_, m.main.scopeDialog.scopes[2] = installedScopes[claude.ScopeLocal]
+
+	// Pre-toggle a scope if requested (e.g., pressing 'l' on multi-scope pre-checks local)
+	if preToggle != nil {
+		switch *preToggle {
+		case claude.ScopeUser:
+			m.main.scopeDialog.scopes[0] = !m.main.scopeDialog.scopes[0]
+		case claude.ScopeProject:
+			m.main.scopeDialog.scopes[1] = !m.main.scopeDialog.scopes[1]
+		case claude.ScopeLocal:
+			m.main.scopeDialog.scopes[2] = !m.main.scopeDialog.scopes[2]
+		}
 	}
 }
 
@@ -554,6 +597,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle confirmation dialog
 	if m.main.showConfirm {
 		return m.updateConfirmation(msg)
+	}
+
+	// Handle scope dialog mode
+	if m.mode == ModeScopeDialog {
+		// Minimal handler — Esc exits. Phase 6 replaces this with full dialog handling.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if matchesKey(keyMsg, m.keys.Escape) {
+				m.mode = ModeMain
+			}
+		}
+		return m, nil
 	}
 
 	// Handle mode-specific updates
