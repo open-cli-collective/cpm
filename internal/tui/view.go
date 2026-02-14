@@ -633,6 +633,7 @@ func buildOperationSummary(operations []Operation) string {
 		{"update(s)", OpUpdate},
 		{"enable(s)", OpEnable},
 		{"disable(s)", OpDisable},
+		{"scope change(s)", OpScopeChange},
 	}
 
 	var parts []string
