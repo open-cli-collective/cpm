@@ -698,9 +698,9 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 			}
 		case OpScopeChange:
 			// Mixed scope change: uninstall removed scopes first, then install new ones
-			allScopes := claude.GetAllEnabledPlugins(m.workingDir)
+			// Reuses allScopes from line above (pre-execution state)
 			for _, scope := range op.UninstallScopes {
-				if _, exists := allScopes[op.PluginID][scope]; exists {
+				if _, exists := pluginScopes[scope]; exists {
 					err = m.client.UninstallPlugin(op.PluginID, scope)
 				}
 				if err != nil {
@@ -710,7 +710,7 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 			}
 			if err == nil {
 				for _, scope := range op.Scopes {
-					if _, exists := allScopes[op.PluginID][scope]; exists {
+					if existsInSettings(scope) {
 						err = m.client.EnablePlugin(op.PluginID, scope)
 					} else {
 						err = m.client.InstallPlugin(op.PluginID, scope)
