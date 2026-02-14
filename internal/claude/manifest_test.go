@@ -24,7 +24,7 @@ func TestGetAllEnabledPluginsUserScope(t *testing.T) {
 
 	// Create user settings file
 	userSettingsDir := filepath.Join(tmpHome, ".claude")
-	if err := os.MkdirAll(userSettingsDir, 0755); err != nil {
+	if err = os.MkdirAll(userSettingsDir, 0o755); err != nil {
 		t.Fatalf("Failed to create user settings dir: %v", err)
 	}
 
@@ -39,7 +39,7 @@ func TestGetAllEnabledPluginsUserScope(t *testing.T) {
 	}
 
 	userSettingsPath := filepath.Join(userSettingsDir, "settings.json")
-	if err := os.WriteFile(userSettingsPath, userSettingsData, 0644); err != nil {
+	if err = os.WriteFile(userSettingsPath, userSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write user settings: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestGetAllEnabledPluginsProjectAndLocalScope(t *testing.T) {
 
 	// Create project settings directory
 	projectSettingsDir := filepath.Join(tmpWork, ".claude")
-	if err := os.MkdirAll(projectSettingsDir, 0755); err != nil {
+	if err = os.MkdirAll(projectSettingsDir, 0o755); err != nil {
 		t.Fatalf("Failed to create project settings dir: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestGetAllEnabledPluginsProjectAndLocalScope(t *testing.T) {
 	}
 
 	projectSettingsPath := filepath.Join(projectSettingsDir, "settings.json")
-	if err := os.WriteFile(projectSettingsPath, projectSettingsData, 0644); err != nil {
+	if err = os.WriteFile(projectSettingsPath, projectSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write project settings: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestGetAllEnabledPluginsProjectAndLocalScope(t *testing.T) {
 	}
 
 	localSettingsPath := filepath.Join(projectSettingsDir, "settings.local.json")
-	if err := os.WriteFile(localSettingsPath, localSettingsData, 0644); err != nil {
+	if err = os.WriteFile(localSettingsPath, localSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write local settings: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestGetAllEnabledPluginsMultipleScopes(t *testing.T) {
 
 	// Create user settings with plugin-x@mp
 	userSettingsDir := filepath.Join(tmpHome, ".claude")
-	if err := os.MkdirAll(userSettingsDir, 0755); err != nil {
+	if err = os.MkdirAll(userSettingsDir, 0o755); err != nil {
 		t.Fatalf("Failed to create user settings dir: %v", err)
 	}
 
@@ -199,13 +199,13 @@ func TestGetAllEnabledPluginsMultipleScopes(t *testing.T) {
 	}
 
 	userSettingsPath := filepath.Join(userSettingsDir, "settings.json")
-	if err := os.WriteFile(userSettingsPath, userSettingsData, 0644); err != nil {
+	if err = os.WriteFile(userSettingsPath, userSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write user settings: %v", err)
 	}
 
 	// Create local settings with plugin-x@mp
 	projectSettingsDir := filepath.Join(tmpWork, ".claude")
-	if err := os.MkdirAll(projectSettingsDir, 0755); err != nil {
+	if err = os.MkdirAll(projectSettingsDir, 0o755); err != nil {
 		t.Fatalf("Failed to create project settings dir: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestGetAllEnabledPluginsMultipleScopes(t *testing.T) {
 	}
 
 	localSettingsPath := filepath.Join(projectSettingsDir, "settings.local.json")
-	if err := os.WriteFile(localSettingsPath, localSettingsData, 0644); err != nil {
+	if err = os.WriteFile(localSettingsPath, localSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write local settings: %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestGetAllEnabledPluginsDisabledButPresent(t *testing.T) {
 
 	// Create project settings with disabled plugin
 	projectSettingsDir := filepath.Join(tmpWork, ".claude")
-	if err := os.MkdirAll(projectSettingsDir, 0755); err != nil {
+	if err = os.MkdirAll(projectSettingsDir, 0o755); err != nil {
 		t.Fatalf("Failed to create project settings dir: %v", err)
 	}
 
@@ -278,7 +278,7 @@ func TestGetAllEnabledPluginsDisabledButPresent(t *testing.T) {
 	}
 
 	projectSettingsPath := filepath.Join(projectSettingsDir, "settings.json")
-	if err := os.WriteFile(projectSettingsPath, projectSettingsData, 0644); err != nil {
+	if err = os.WriteFile(projectSettingsPath, projectSettingsData, 0o644); err != nil {
 		t.Fatalf("Failed to write project settings: %v", err)
 	}
 
