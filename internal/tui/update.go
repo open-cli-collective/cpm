@@ -279,20 +279,20 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 
 		// If already pending for the same scope/operation, clear it (toggle off)
 		if existingOp, ok := m.main.pendingOps[plugin.ID]; ok {
-			if (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == scope {
+			if (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scopes[0] == scope {
 				m.clearPending(plugin.ID)
 				continue
 			}
 		}
 
 		// Check if plugin is already installed at a different scope
-		if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
+		if plugin.IsInstalled() && !plugin.HasScope(scope) {
 			// Create migrate operation (move from current scope to new scope)
 			m.main.pendingOps[plugin.ID] = Operation{
-				PluginID:      plugin.ID,
-				Scope:         scope,
-				OriginalScope: plugin.InstalledScope,
-				Type:          OpMigrate,
+				PluginID:       plugin.ID,
+				Scopes:         []claude.Scope{scope},
+				OriginalScopes: copyMap(plugin.InstalledScopes),
+				Type:           OpMigrate,
 			}
 			continue
 		}
@@ -300,7 +300,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 		// Create install operation
 		m.main.pendingOps[plugin.ID] = Operation{
 			PluginID: plugin.ID,
-			Scope:    scope,
+			Scopes:   []claude.Scope{scope},
 			Type:     OpInstall,
 		}
 	}
@@ -334,15 +334,15 @@ func (m *Model) computeNextToggleOp(plugin *PluginState) *Operation {
 
 	// Cycle based on current pending operation
 	switch {
-	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == claude.ScopeLocal:
+	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scopes[0] == claude.ScopeLocal:
 		return m.firstToggleOp(plugin, claude.ScopeProject)
-	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scope == claude.ScopeProject:
-		if plugin.InstalledScope != claude.ScopeNone {
+	case (existingOp.Type == OpInstall || existingOp.Type == OpMigrate) && existingOp.Scopes[0] == claude.ScopeProject:
+		if plugin.IsInstalled() {
 			return &Operation{
-				PluginID:      plugin.ID,
-				Scope:         claude.ScopeNone,
-				OriginalScope: plugin.InstalledScope,
-				Type:          OpUninstall,
+				PluginID:       plugin.ID,
+				Scopes:         []claude.Scope{},
+				OriginalScopes: copyMap(plugin.InstalledScopes),
+				Type:           OpUninstall,
 			}
 		}
 		return nil // Not installed, clear
@@ -355,17 +355,17 @@ func (m *Model) computeNextToggleOp(plugin *PluginState) *Operation {
 
 // firstToggleOp returns the appropriate operation for installing/migrating to a scope.
 func (m *Model) firstToggleOp(plugin *PluginState, scope claude.Scope) *Operation {
-	if plugin.InstalledScope != claude.ScopeNone && plugin.InstalledScope != scope {
+	if plugin.IsInstalled() && !plugin.HasScope(scope) {
 		return &Operation{
-			PluginID:      plugin.ID,
-			Scope:         scope,
-			OriginalScope: plugin.InstalledScope,
-			Type:          OpMigrate,
+			PluginID:       plugin.ID,
+			Scopes:         []claude.Scope{scope},
+			OriginalScopes: copyMap(plugin.InstalledScopes),
+			Type:           OpMigrate,
 		}
 	}
 	return &Operation{
 		PluginID: plugin.ID,
-		Scope:    scope,
+		Scopes:   []claude.Scope{scope},
 		Type:     OpInstall,
 	}
 }
@@ -378,7 +378,7 @@ func (m *Model) selectForUninstall() {
 	}
 
 	for _, plugin := range plugins {
-		if plugin.IsGroupHeader || plugin.InstalledScope == claude.ScopeNone {
+		if plugin.IsGroupHeader || !plugin.IsInstalled() {
 			continue // Can't uninstall if not installed or if group header
 		}
 
@@ -392,10 +392,10 @@ func (m *Model) selectForUninstall() {
 
 		// Create uninstall operation
 		m.main.pendingOps[plugin.ID] = Operation{
-			PluginID:      plugin.ID,
-			Scope:         claude.ScopeNone,
-			OriginalScope: plugin.InstalledScope,
-			Type:          OpUninstall,
+			PluginID:       plugin.ID,
+			Scopes:         []claude.Scope{},
+			OriginalScopes: copyMap(plugin.InstalledScopes),
+			Type:           OpUninstall,
 		}
 	}
 }
@@ -408,7 +408,7 @@ func (m *Model) selectForUpdate() {
 	}
 
 	// Can only update installed plugins that have updates available
-	if plugin.InstalledScope == claude.ScopeNone || !plugin.HasUpdate {
+	if !plugin.IsInstalled() || !plugin.HasUpdate {
 		return
 	}
 
@@ -422,10 +422,10 @@ func (m *Model) selectForUpdate() {
 
 	// Create update operation (will reinstall at same scope)
 	m.main.pendingOps[plugin.ID] = Operation{
-		PluginID:      plugin.ID,
-		Scope:         plugin.InstalledScope,
-		OriginalScope: plugin.InstalledScope,
-		Type:          OpUpdate,
+		PluginID:       plugin.ID,
+		Scopes:         []claude.Scope{plugin.SingleScope()},
+		OriginalScopes: map[claude.Scope]bool{plugin.SingleScope(): true},
+		Type:           OpUpdate,
 	}
 }
 
@@ -503,23 +503,23 @@ func (m *Model) executeOperation(op Operation) tea.Cmd {
 		var err error
 		switch op.Type {
 		case OpInstall:
-			err = m.client.InstallPlugin(op.PluginID, op.Scope)
+			err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
 		case OpUninstall:
 			// For uninstalls, use the original scope to uninstall from the specific scope
-			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+			err = m.client.UninstallPlugin(op.PluginID, firstScope(op.OriginalScopes))
 		case OpMigrate:
 			// Migration = uninstall from old scope + install to new scope
-			err = m.client.UninstallPlugin(op.PluginID, op.OriginalScope)
+			err = m.client.UninstallPlugin(op.PluginID, firstScope(op.OriginalScopes))
 			if err == nil {
-				err = m.client.InstallPlugin(op.PluginID, op.Scope)
+				err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
 			}
 		case OpUpdate:
 			// Update is a reinstall at the same scope
-			err = m.client.InstallPlugin(op.PluginID, op.Scope)
+			err = m.client.InstallPlugin(op.PluginID, op.Scopes[0])
 		case OpEnable:
-			err = m.client.EnablePlugin(op.PluginID, op.Scope)
+			err = m.client.EnablePlugin(op.PluginID, op.Scopes[0])
 		case OpDisable:
-			err = m.client.DisablePlugin(op.PluginID, op.Scope)
+			err = m.client.DisablePlugin(op.PluginID, op.Scopes[0])
 		default:
 			err = fmt.Errorf("unknown operation type: %d", op.Type)
 		}
@@ -839,8 +839,8 @@ func sortByScope(plugins []PluginState) {
 		claude.ScopeNone:    3,
 	}
 	sort.Slice(plugins, func(i, j int) bool {
-		orderI := scopeOrder[plugins[i].InstalledScope]
-		orderJ := scopeOrder[plugins[j].InstalledScope]
+		orderI := scopeOrder[plugins[i].SingleScope()]
+		orderJ := scopeOrder[plugins[j].SingleScope()]
 		if orderI != orderJ {
 			return orderI < orderJ
 		}
@@ -919,7 +919,7 @@ func rebuildWithGroupHeaders(plugins []PluginState, sortMode SortMode) []PluginS
 		}
 		byScope := make(map[claude.Scope][]PluginState)
 		for _, p := range plugins {
-			byScope[p.InstalledScope] = append(byScope[p.InstalledScope], p)
+			byScope[p.SingleScope()] = append(byScope[p.SingleScope()], p)
 		}
 		for _, scope := range scopeOrder {
 			if len(byScope[scope]) > 0 {

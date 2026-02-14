@@ -131,7 +131,7 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 
 	// Show current scope
 	var scopeText string
-	switch plugin.InstalledScope {
+	switch plugin.SingleScope() {
 	case claude.ScopeLocal:
 		scopeText = "LOCAL"
 	case claude.ScopeProject:
@@ -149,7 +149,7 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 
 	// Apply style based on scope
 	var result string
-	switch plugin.InstalledScope {
+	switch plugin.SingleScope() {
 	case claude.ScopeLocal:
 		result = styles.ScopeLocal.Render("[" + scopeText + "]")
 	case claude.ScopeProject:
@@ -172,11 +172,11 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 func renderPendingIndicator(op Operation, styles Styles) string {
 	switch op.Type {
 	case OpInstall:
-		return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+		return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scopes[0])) + "]")
 	case OpUninstall:
 		return styles.Pending.Render("[→ UNINSTALL]")
 	case OpMigrate:
-		return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
+		return styles.Pending.Render("[" + strings.ToUpper(string(firstScope(op.OriginalScopes))) + " → " + strings.ToUpper(string(op.Scopes[0])) + "]")
 	case OpUpdate:
 		return styles.Pending.Render("[→ UPDATE]")
 	case OpEnable:
@@ -281,10 +281,10 @@ func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
 
 // getStatusText returns the status text for a plugin.
 func (m *Model) getStatusText(plugin PluginState) string {
-	if plugin.InstalledScope == claude.ScopeNone {
+	if !plugin.IsInstalled() {
 		return "Not installed"
 	}
-	status := "Installed (" + string(plugin.InstalledScope) + ")"
+	status := "Installed (" + string(plugin.SingleScope()) + ")"
 	if plugin.Enabled {
 		status += " - Enabled"
 	} else {
@@ -303,11 +303,11 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	var pendingStr string
 	switch op.Type {
 	case OpInstall:
-		pendingStr = "Will be installed to " + string(op.Scope)
+		pendingStr = "Will be installed to " + string(op.Scopes[0])
 	case OpUninstall:
 		pendingStr = "Will be uninstalled"
 	case OpMigrate:
-		pendingStr = "Will be moved from " + string(op.OriginalScope) + " to " + string(op.Scope)
+		pendingStr = "Will be moved from " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
 	case OpUpdate:
 		pendingStr = "Will be updated"
 	case OpEnable:
@@ -363,7 +363,7 @@ func appendComponentCategory(lines []string, category string, items []string, st
 
 // appendExternalNotice appends the external plugin notice if applicable.
 func (m *Model) appendExternalNotice(lines []string, plugin PluginState, styles Styles) []string {
-	if !plugin.IsExternal || plugin.InstalledScope != claude.ScopeNone {
+	if !plugin.IsExternal || plugin.IsInstalled() {
 		return lines
 	}
 	lines = append(lines, "")
@@ -504,11 +504,11 @@ func (m *Model) renderConfirmation(styles Styles) string {
 func formatOperationLine(op Operation, styles Styles) string {
 	switch op.Type {
 	case OpInstall:
-		return styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
+		return styles.ScopeProject.Render("Install ("+string(op.Scopes[0])+"): ") + op.PluginID
 	case OpUninstall:
 		return styles.Pending.Render("Uninstall: ") + op.PluginID
 	case OpMigrate:
-		return styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
+		return styles.ScopeProject.Render("Move ("+string(firstScope(op.OriginalScopes))+" → "+string(op.Scopes[0])+"): ") + op.PluginID
 	case OpUpdate:
 		return styles.ScopeProject.Render("Update: ") + op.PluginID
 	case OpEnable:
@@ -579,13 +579,13 @@ func (m *Model) renderProgress(styles Styles) string {
 		switch op.Type {
 		case OpInstall:
 			action = "Install"
-			scopeStr = " (" + string(op.Scope) + ")"
+			scopeStr = " (" + string(op.Scopes[0]) + ")"
 		case OpUninstall:
 			action = "Uninstall"
 			scopeStr = ""
 		case OpMigrate:
 			action = "Move"
-			scopeStr = " (" + string(op.OriginalScope) + " → " + string(op.Scope) + ")"
+			scopeStr = " (" + string(firstScope(op.OriginalScopes)) + " → " + string(op.Scopes[0]) + ")"
 		case OpUpdate:
 			action = "Update"
 			scopeStr = ""

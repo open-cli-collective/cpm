@@ -162,35 +162,6 @@ func ReadProjectSettings(settingsPath string) (*ProjectSettings, error) {
 	return &settings, nil
 }
 
-// GetProjectEnabledPlugins returns the set of plugin IDs enabled for the given working directory.
-// It reads both .claude/settings.json (project scope) and .claude/settings.local.json (local scope)
-// and returns a map of plugin ID to scope.
-func GetProjectEnabledPlugins(workingDir string) map[string]Scope {
-	result := make(map[string]Scope)
-
-	// Read project-scoped settings
-	projectSettingsPath := filepath.Join(workingDir, ".claude", "settings.json")
-	if settings, err := ReadProjectSettings(projectSettingsPath); err == nil {
-		for pluginID, enabled := range settings.EnabledPlugins {
-			if enabled {
-				result[pluginID] = ScopeProject
-			}
-		}
-	}
-
-	// Read local-scoped settings (overrides project if present)
-	localSettingsPath := filepath.Join(workingDir, ".claude", "settings.local.json")
-	if settings, err := ReadProjectSettings(localSettingsPath); err == nil {
-		for pluginID, enabled := range settings.EnabledPlugins {
-			if enabled {
-				result[pluginID] = ScopeLocal
-			}
-		}
-	}
-
-	return result
-}
-
 // ScopeState tracks the enabled state of a plugin at a specific scope.
 // The outer map key is the plugin ID, the inner map key is the scope,
 // and the bool value is true=enabled, false=disabled-but-present.
