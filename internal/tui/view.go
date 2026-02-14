@@ -11,6 +11,26 @@ import (
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
+// scopeOrder defines the canonical display order for scopes.
+var scopeOrder = []claude.Scope{claude.ScopeUser, claude.ScopeProject, claude.ScopeLocal}
+
+// scopeLabel returns the uppercase label for a scope.
+func scopeLabel(s claude.Scope) string {
+	return strings.ToUpper(string(s))
+}
+
+// formatScopeSet renders multiple scopes as a comma-separated string in canonical order.
+// Example: "USER, LOCAL" for a plugin installed at user and local scopes.
+func formatScopeSet(scopes map[claude.Scope]bool) string {
+	var labels []string
+	for _, s := range scopeOrder {
+		if _, ok := scopes[s]; ok {
+			labels = append(labels, scopeLabel(s))
+		}
+	}
+	return strings.Join(labels, ", ")
+}
+
 // renderMainView renders the main two-pane view.
 func (m *Model) renderMainView() string {
 	if m.width == 0 || m.height == 0 {
@@ -126,41 +146,40 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
 	if op, ok := m.main.pendingOps[plugin.ID]; ok {
-		return renderPendingIndicator(op, styles)
+		return renderPendingIndicator(op, plugin, styles)
 	}
 
-	// Show current scope
-	var scopeText string
-	switch plugin.SingleScope() {
-	case claude.ScopeLocal:
-		scopeText = "LOCAL"
-	case claude.ScopeProject:
-		scopeText = "PROJECT"
-	case claude.ScopeUser:
-		scopeText = "USER"
-	default:
+	if !plugin.IsInstalled() {
 		return ""
 	}
+
+	scopeText := formatScopeSet(plugin.InstalledScopes)
 
 	// Append disabled status if applicable
 	if !plugin.Enabled {
-		scopeText += ", DISABLED"
+		scopeText += " (disabled)"
 	}
 
-	// Apply style based on scope
-	var result string
-	switch plugin.SingleScope() {
-	case claude.ScopeLocal:
-		result = styles.ScopeLocal.Render("[" + scopeText + "]")
-	case claude.ScopeProject:
-		result = styles.ScopeProject.Render("[" + scopeText + "]")
-	case claude.ScopeUser:
-		result = styles.ScopeUser.Render("[" + scopeText + "]")
-	default:
-		return ""
+	// For single-scope, style by scope type; for multi-scope, use first scope's style
+	var style lipgloss.Style
+	if plugin.IsSingleScope() {
+		switch plugin.SingleScope() {
+		case claude.ScopeLocal:
+			style = styles.ScopeLocal
+		case claude.ScopeProject:
+			style = styles.ScopeProject
+		case claude.ScopeUser:
+			style = styles.ScopeUser
+		default:
+			return ""
+		}
+	} else {
+		// Multi-scope: use project style as neutral choice
+		style = styles.ScopeProject
 	}
 
-	// Append update indicator if available
+	result := style.Render("[" + scopeText + "]")
+
 	if plugin.HasUpdate {
 		result += styles.Pending.Render(" ↑")
 	}
@@ -169,20 +188,50 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 }
 
 // renderPendingIndicator renders the pending operation indicator for a plugin.
-func renderPendingIndicator(op Operation, styles Styles) string {
+func renderPendingIndicator(op Operation, plugin PluginState, styles Styles) string {
 	switch op.Type {
 	case OpInstall:
-		return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scopes[0])) + "]")
+		if plugin.IsInstalled() {
+			// Adding scopes to existing plugin: show current + new
+			newScopes := copyMap(plugin.InstalledScopes)
+			for _, s := range op.Scopes {
+				newScopes[s] = true
+			}
+			return styles.Pending.Render("[-> " + formatScopeSet(newScopes) + "]")
+		}
+		return styles.Pending.Render("[-> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUninstall:
-		return styles.Pending.Render("[→ UNINSTALL]")
+		if len(op.OriginalScopes) > 1 || (plugin.IsInstalled() && !plugin.IsSingleScope()) {
+			// Partial uninstall: show remaining scopes
+			remaining := copyMap(plugin.InstalledScopes)
+			for _, s := range op.Scopes {
+				delete(remaining, s)
+			}
+			if len(remaining) > 0 {
+				current := formatScopeSet(plugin.InstalledScopes)
+				return styles.Pending.Render("[" + current + " -> " + formatScopeSet(remaining) + "]")
+			}
+		}
+		return styles.Pending.Render("[-> UNINSTALL]")
 	case OpMigrate:
-		return styles.Pending.Render("[" + strings.ToUpper(string(firstScope(op.OriginalScopes))) + " → " + strings.ToUpper(string(op.Scopes[0])) + "]")
+		return styles.Pending.Render("[" + scopeLabel(firstScope(op.OriginalScopes)) + " -> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUpdate:
-		return styles.Pending.Render("[→ UPDATE]")
+		return styles.Pending.Render("[-> UPDATE]")
 	case OpEnable:
-		return styles.Pending.Render("[→ ENABLED]")
+		return styles.Pending.Render("[-> ENABLED]")
 	case OpDisable:
-		return styles.Pending.Render("[→ DISABLED]")
+		return styles.Pending.Render("[-> DISABLED]")
+	case OpScopeChange:
+		// Show transition from current scopes to new scopes
+		newScopes := copyMap(plugin.InstalledScopes)
+		for _, s := range op.UninstallScopes {
+			delete(newScopes, s)
+		}
+		for _, s := range op.Scopes {
+			newScopes[s] = true
+		}
+		current := formatScopeSet(plugin.InstalledScopes)
+		return styles.Pending.Render("[" + current + " -> " + formatScopeSet(newScopes) + "]")
 	default:
 		return ""
 	}
@@ -284,7 +333,7 @@ func (m *Model) getStatusText(plugin PluginState) string {
 	if !plugin.IsInstalled() {
 		return "Not installed"
 	}
-	status := "Installed (" + string(plugin.SingleScope()) + ")"
+	status := "Installed (" + formatScopeSet(plugin.InstalledScopes) + ")"
 	if plugin.Enabled {
 		status += " - Enabled"
 	} else {
@@ -303,9 +352,30 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	var pendingStr string
 	switch op.Type {
 	case OpInstall:
-		pendingStr = "Will be installed to " + string(op.Scopes[0])
+		targets := make([]string, len(op.Scopes))
+		for i, s := range op.Scopes {
+			targets[i] = string(s)
+		}
+		pendingStr = "Will be installed to " + strings.Join(targets, ", ")
 	case OpUninstall:
-		pendingStr = "Will be uninstalled"
+		if len(op.Scopes) > 0 && plugin.IsInstalled() && !plugin.IsSingleScope() {
+			// Partial uninstall
+			targets := make([]string, len(op.Scopes))
+			for i, s := range op.Scopes {
+				targets[i] = string(s)
+			}
+			remaining := copyMap(plugin.InstalledScopes)
+			for _, s := range op.Scopes {
+				delete(remaining, s)
+			}
+			if len(remaining) > 0 {
+				pendingStr = "Will be uninstalled from " + strings.Join(targets, ", ") + " (keeping " + formatScopeSet(remaining) + ")"
+			} else {
+				pendingStr = "Will be uninstalled"
+			}
+		} else {
+			pendingStr = "Will be uninstalled"
+		}
 	case OpMigrate:
 		pendingStr = "Will be moved from " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
 	case OpUpdate:
@@ -314,6 +384,16 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 		pendingStr = "Will be enabled"
 	case OpDisable:
 		pendingStr = "Will be disabled"
+	case OpScopeChange:
+		installTargets := make([]string, len(op.Scopes))
+		for i, s := range op.Scopes {
+			installTargets[i] = string(s)
+		}
+		uninstallTargets := make([]string, len(op.UninstallScopes))
+		for i, s := range op.UninstallScopes {
+			uninstallTargets[i] = string(s)
+		}
+		pendingStr = "Will add " + strings.Join(installTargets, ", ") + " and remove " + strings.Join(uninstallTargets, ", ")
 	default:
 		pendingStr = "Unknown operation"
 	}
@@ -504,17 +584,32 @@ func (m *Model) renderConfirmation(styles Styles) string {
 func formatOperationLine(op Operation, styles Styles) string {
 	switch op.Type {
 	case OpInstall:
-		return styles.ScopeProject.Render("Install ("+string(op.Scopes[0])+"): ") + op.PluginID
+		targets := make([]string, len(op.Scopes))
+		for i, s := range op.Scopes {
+			targets[i] = string(s)
+		}
+		return styles.ScopeProject.Render("Install ("+strings.Join(targets, ", ")+"): ") + op.PluginID
 	case OpUninstall:
 		return styles.Pending.Render("Uninstall: ") + op.PluginID
 	case OpMigrate:
-		return styles.ScopeProject.Render("Move ("+string(firstScope(op.OriginalScopes))+" → "+string(op.Scopes[0])+"): ") + op.PluginID
+		return styles.ScopeProject.Render("Move ("+string(firstScope(op.OriginalScopes))+" -> "+string(op.Scopes[0])+"): ") + op.PluginID
 	case OpUpdate:
 		return styles.ScopeProject.Render("Update: ") + op.PluginID
 	case OpEnable:
 		return styles.ScopeProject.Render("Enable: ") + op.PluginID
 	case OpDisable:
 		return styles.Pending.Render("Disable: ") + op.PluginID
+	case OpScopeChange:
+		installTargets := make([]string, len(op.Scopes))
+		for i, s := range op.Scopes {
+			installTargets[i] = string(s)
+		}
+		uninstallTargets := make([]string, len(op.UninstallScopes))
+		for i, s := range op.UninstallScopes {
+			uninstallTargets[i] = string(s)
+		}
+		return styles.ScopeProject.Render("Scope change (+"+strings.Join(installTargets, ",")+
+			" -"+strings.Join(uninstallTargets, ",")+"): ") + op.PluginID
 	default:
 		return ""
 	}
@@ -579,13 +674,17 @@ func (m *Model) renderProgress(styles Styles) string {
 		switch op.Type {
 		case OpInstall:
 			action = "Install"
-			scopeStr = " (" + string(op.Scopes[0]) + ")"
+			targets := make([]string, len(op.Scopes))
+			for i, s := range op.Scopes {
+				targets[i] = string(s)
+			}
+			scopeStr = " (" + strings.Join(targets, ", ") + ")"
 		case OpUninstall:
 			action = "Uninstall"
 			scopeStr = ""
 		case OpMigrate:
 			action = "Move"
-			scopeStr = " (" + string(firstScope(op.OriginalScopes)) + " → " + string(op.Scopes[0]) + ")"
+			scopeStr = " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
 		case OpUpdate:
 			action = "Update"
 			scopeStr = ""
@@ -595,6 +694,17 @@ func (m *Model) renderProgress(styles Styles) string {
 		case OpDisable:
 			action = "Disable"
 			scopeStr = ""
+		case OpScopeChange:
+			action = "Scope change"
+			installTargets := make([]string, len(op.Scopes))
+			for i, s := range op.Scopes {
+				installTargets[i] = string(s)
+			}
+			uninstallTargets := make([]string, len(op.UninstallScopes))
+			for i, s := range op.UninstallScopes {
+				uninstallTargets[i] = string(s)
+			}
+			scopeStr = " (+" + strings.Join(installTargets, ",") + " -" + strings.Join(uninstallTargets, ",") + ")"
 		default:
 			action = "Unknown"
 			scopeStr = ""
