@@ -65,9 +65,9 @@ func (c *realClient) ListPlugins(includeAvailable bool) (*PluginList, error) {
 	return &list, nil
 }
 
-// InstallPlugin implements Client.InstallPlugin.
-func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "install"}
+// runPluginCommand executes a claude plugin subcommand (install, uninstall, enable, disable).
+func (c *realClient) runPluginCommand(command, pluginID string, scope Scope) error {
+	args := []string{"plugin", command}
 	if scope != ScopeNone {
 		args = append(args, "--scope", string(scope))
 	}
@@ -79,68 +79,28 @@ func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("claude plugin install failed: %w: %s", err, stderr.String())
+		return fmt.Errorf("claude plugin %s failed: %w: %s", command, err, stderr.String())
 	}
 
 	return nil
+}
+
+// InstallPlugin implements Client.InstallPlugin.
+func (c *realClient) InstallPlugin(pluginID string, scope Scope) error {
+	return c.runPluginCommand("install", pluginID, scope)
 }
 
 // UninstallPlugin implements Client.UninstallPlugin.
 func (c *realClient) UninstallPlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "uninstall"}
-	if scope != ScopeNone {
-		args = append(args, "--scope", string(scope))
-	}
-	args = append(args, pluginID)
-
-	// #nosec G204 -- args are constructed safely from enum scope
-	cmd := exec.Command(c.claudePath, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("claude plugin uninstall failed: %w: %s", err, stderr.String())
-	}
-
-	return nil
+	return c.runPluginCommand("uninstall", pluginID, scope)
 }
 
 // EnablePlugin implements Client.EnablePlugin.
 func (c *realClient) EnablePlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "enable"}
-	if scope != ScopeNone {
-		args = append(args, "--scope", string(scope))
-	}
-	args = append(args, pluginID)
-
-	// #nosec G204 -- args are constructed safely from enum scope
-	cmd := exec.Command(c.claudePath, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("claude plugin enable failed: %w: %s", err, stderr.String())
-	}
-
-	return nil
+	return c.runPluginCommand("enable", pluginID, scope)
 }
 
 // DisablePlugin implements Client.DisablePlugin.
 func (c *realClient) DisablePlugin(pluginID string, scope Scope) error {
-	args := []string{"plugin", "disable"}
-	if scope != ScopeNone {
-		args = append(args, "--scope", string(scope))
-	}
-	args = append(args, pluginID)
-
-	// #nosec G204 -- args are constructed safely from enum scope
-	cmd := exec.Command(c.claudePath, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("claude plugin disable failed: %w: %s", err, stderr.String())
-	}
-
-	return nil
+	return c.runPluginCommand("disable", pluginID, scope)
 }

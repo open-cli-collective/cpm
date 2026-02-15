@@ -22,6 +22,35 @@ const (
 	OpScopeChange // Mixed scope change: install some scopes + uninstall others
 )
 
+// operationMeta holds display metadata for an operation type.
+type operationMeta struct {
+	Verb    string // "Install", "Uninstall", "Move", etc.
+	Noun    string // "install(s)", "uninstall(s)", etc. for summaries
+	Pending string // "Will be installed to", "Will be uninstalled", etc.
+}
+
+// meta returns the display metadata for this operation type.
+func (t OperationType) meta() operationMeta {
+	switch t {
+	case OpInstall:
+		return operationMeta{"Install", "install(s)", "Will be installed to"}
+	case OpUninstall:
+		return operationMeta{"Uninstall", "uninstall(s)", "Will be uninstalled"}
+	case OpMigrate:
+		return operationMeta{"Move", "migration(s)", "Will be moved from"}
+	case OpUpdate:
+		return operationMeta{"Update", "update(s)", "Will be updated"}
+	case OpEnable:
+		return operationMeta{"Enable", "enable(s)", "Will be enabled"}
+	case OpDisable:
+		return operationMeta{"Disable", "disable(s)", "Will be disabled"}
+	case OpScopeChange:
+		return operationMeta{"Scope change", "scope change(s)", "Will change scopes"}
+	default:
+		return operationMeta{"Unknown", "unknown(s)", "Unknown operation"}
+	}
+}
+
 // Mode represents the current UI mode.
 type Mode int
 

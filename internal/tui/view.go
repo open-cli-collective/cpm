@@ -358,21 +358,15 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	var pendingStr string
 	switch op.Type {
 	case OpInstall:
-		pendingStr = "Will be installed to " + joinScopes(op.Scopes)
+		pendingStr = op.Type.meta().Pending + " " + joinScopes(op.Scopes)
 	case OpUninstall:
 		pendingStr = m.formatUninstallPending(op, plugin)
 	case OpMigrate:
-		pendingStr = "Will be moved from " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
-	case OpUpdate:
-		pendingStr = "Will be updated"
-	case OpEnable:
-		pendingStr = "Will be enabled"
-	case OpDisable:
-		pendingStr = "Will be disabled"
+		pendingStr = op.Type.meta().Pending + " " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
 	case OpScopeChange:
 		pendingStr = "Will add " + joinScopes(op.Scopes) + " and remove " + joinScopes(op.UninstallScopes)
 	default:
-		pendingStr = "Unknown operation"
+		pendingStr = op.Type.meta().Pending
 	}
 
 	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
@@ -570,37 +564,15 @@ func (m *Model) renderConfirmation(styles Styles) string {
 
 // formatOperationLine formats a single operation for display in the confirmation modal.
 func formatOperationLine(op Operation, styles Styles) string {
-	switch op.Type {
-	case OpInstall:
-		targets := make([]string, len(op.Scopes))
-		for i, s := range op.Scopes {
-			targets[i] = string(s)
-		}
-		return styles.ScopeProject.Render("Install ("+strings.Join(targets, ", ")+"): ") + op.PluginID
-	case OpUninstall:
-		return styles.Pending.Render("Uninstall: ") + op.PluginID
-	case OpMigrate:
-		return styles.ScopeProject.Render("Move ("+string(firstScope(op.OriginalScopes))+" -> "+string(op.Scopes[0])+"): ") + op.PluginID
-	case OpUpdate:
-		return styles.ScopeProject.Render("Update: ") + op.PluginID
-	case OpEnable:
-		return styles.ScopeProject.Render("Enable: ") + op.PluginID
-	case OpDisable:
-		return styles.Pending.Render("Disable: ") + op.PluginID
-	case OpScopeChange:
-		installTargets := make([]string, len(op.Scopes))
-		for i, s := range op.Scopes {
-			installTargets[i] = string(s)
-		}
-		uninstallTargets := make([]string, len(op.UninstallScopes))
-		for i, s := range op.UninstallScopes {
-			uninstallTargets[i] = string(s)
-		}
-		return styles.ScopeProject.Render("Scope change (+"+strings.Join(installTargets, ",")+
-			" -"+strings.Join(uninstallTargets, ",")+"): ") + op.PluginID
-	default:
-		return ""
+	verb, scopeDetail := formatOperationAction(op)
+
+	// Destructive operations use pending (warning) style
+	style := styles.ScopeProject
+	if op.Type == OpUninstall || op.Type == OpDisable {
+		style = styles.Pending
 	}
+
+	return style.Render(verb+scopeDetail+": ") + op.PluginID
 }
 
 // buildOperationSummary builds a summary string counting operations by type.
@@ -610,24 +582,12 @@ func buildOperationSummary(operations []Operation) string {
 		counts[op.Type]++
 	}
 
-	type labeledCount struct {
-		label  string
-		opType OperationType
-	}
-	order := []labeledCount{
-		{"install(s)", OpInstall},
-		{"uninstall(s)", OpUninstall},
-		{"migration(s)", OpMigrate},
-		{"update(s)", OpUpdate},
-		{"enable(s)", OpEnable},
-		{"disable(s)", OpDisable},
-		{"scope change(s)", OpScopeChange},
-	}
+	order := []OperationType{OpInstall, OpUninstall, OpMigrate, OpUpdate, OpEnable, OpDisable, OpScopeChange}
 
 	var parts []string
-	for _, lc := range order {
-		if c := counts[lc.opType]; c > 0 {
-			parts = append(parts, strconv.Itoa(c)+" "+lc.label)
+	for _, opType := range order {
+		if c := counts[opType]; c > 0 {
+			parts = append(parts, strconv.Itoa(c)+" "+opType.meta().Noun)
 		}
 	}
 	return strings.Join(parts, ", ")
@@ -635,23 +595,16 @@ func buildOperationSummary(operations []Operation) string {
 
 // formatOperationAction returns the action label and scope detail for a progress line.
 func formatOperationAction(op Operation) (string, string) {
+	verb := op.Type.meta().Verb
 	switch op.Type {
 	case OpInstall:
-		return "Install", " (" + joinScopes(op.Scopes) + ")"
-	case OpUninstall:
-		return "Uninstall", ""
+		return verb, " (" + joinScopes(op.Scopes) + ")"
 	case OpMigrate:
-		return "Move", " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
-	case OpUpdate:
-		return "Update", ""
-	case OpEnable:
-		return "Enable", ""
-	case OpDisable:
-		return "Disable", ""
+		return verb, " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
 	case OpScopeChange:
-		return "Scope change", " (+" + joinScopes(op.Scopes) + " -" + joinScopes(op.UninstallScopes) + ")"
+		return verb, " (+" + joinScopes(op.Scopes) + " -" + joinScopes(op.UninstallScopes) + ")"
 	default:
-		return "Unknown", ""
+		return verb, ""
 	}
 }
 

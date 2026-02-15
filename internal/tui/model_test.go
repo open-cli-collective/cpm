@@ -159,13 +159,24 @@ func (m *mockClient) DisablePlugin(pluginID string, scope claude.Scope) error {
 	return m.err
 }
 
-func TestSelectForInstallLocal(t *testing.T) {
+// testModel creates a Model with a mockClient and a single test plugin.
+// The scopes parameter sets InstalledScopes on the plugin.
+func testModel(scopes ...claude.Scope) (*Model, *mockClient) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
+	scopeMap := make(map[claude.Scope]bool, len(scopes))
+	for _, s := range scopes {
+		scopeMap[s] = true
+	}
 	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
+		{ID: "test@marketplace", Name: "test", InstalledScopes: scopeMap},
 	}
 	m.selectedIdx = 0
+	return m, client
+}
+
+func TestSelectForInstallLocal(t *testing.T) {
+	m, _ := testModel()
 
 	m.selectForInstall(claude.ScopeLocal)
 
@@ -176,12 +187,7 @@ func TestSelectForInstallLocal(t *testing.T) {
 }
 
 func TestSelectForInstallProject(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 
 	m.selectForInstall(claude.ScopeProject)
 
@@ -192,12 +198,7 @@ func TestSelectForInstallProject(t *testing.T) {
 }
 
 func TestSelectForInstallClearsIfSameScope(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall}
 
 	// Selecting local should replace pending (not clear it, since project != local)
@@ -209,12 +210,7 @@ func TestSelectForInstallClearsIfSameScope(t *testing.T) {
 }
 
 func TestSelectForUninstall(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.selectForUninstall()
 
@@ -225,12 +221,7 @@ func TestSelectForUninstall(t *testing.T) {
 }
 
 func TestSelectForUninstallToggle(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	// First uninstall
 	m.selectForUninstall()
@@ -246,12 +237,7 @@ func TestSelectForUninstallToggle(t *testing.T) {
 }
 
 func TestClearPending(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 
 	m.clearPending("test@marketplace")
@@ -262,12 +248,7 @@ func TestClearPending(t *testing.T) {
 }
 
 func TestToggleScopeCycle(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 
 	// None -> Local
 	m.toggleScope()
@@ -289,12 +270,7 @@ func TestToggleScopeCycle(t *testing.T) {
 }
 
 func TestToggleScopeInstalledPlugin(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	// Local installed -> Local pending (same scope = install, not migrate)
 	m.toggleScope()
@@ -333,12 +309,7 @@ func TestSkipsGroupHeaders(t *testing.T) {
 
 // TestUpdateConfirmationEnterStartsExecution tests that Enter in confirmation starts execution.
 func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 	m.main.showConfirm = true
 
@@ -1653,15 +1624,7 @@ func TestToggleEnablementUsesInstalledScope(t *testing.T) {
 
 // TestSelectForInstallMultiScopeOpensDialog tests AC5.1: multi-scope on install key opens scope dialog
 func TestSelectForInstallMultiScopeOpensDialog(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeUser:  true,
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeUser, claude.ScopeLocal)
 
 	m.selectForInstall(claude.ScopeProject)
 
@@ -1684,14 +1647,7 @@ func TestSelectForInstallMultiScopeOpensDialog(t *testing.T) {
 
 // TestSelectForInstallSingleScopeCreatesOp tests that single-scope plugins still create operations
 func TestSelectForInstallSingleScopeCreatesOp(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.selectForInstall(claude.ScopeProject)
 
@@ -1710,15 +1666,7 @@ func TestSelectForInstallSingleScopeCreatesOp(t *testing.T) {
 
 // TestSelectForUninstallMultiScopeOpensDialog tests AC5.2: multi-scope on uninstall key opens dialog
 func TestSelectForUninstallMultiScopeOpensDialog(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeUser:    true,
-			claude.ScopeProject: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeUser, claude.ScopeProject)
 
 	m.selectForUninstall()
 
@@ -1737,14 +1685,7 @@ func TestSelectForUninstallMultiScopeOpensDialog(t *testing.T) {
 
 // TestSelectForUninstallSingleScopeCreatesOp tests that single-scope plugins still create uninstall ops
 func TestSelectForUninstallSingleScopeCreatesOp(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.selectForUninstall()
 
@@ -1814,16 +1755,7 @@ func TestToggleEnablementSingleScopeCreatesOp(t *testing.T) {
 
 // TestToggleScopeMultiScopeIsNoOp tests AC5.4: Tab key is no-op on multi-scope plugins
 func TestToggleScopeMultiScopeIsNoOp(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeUser:  true,
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
-	m.main.pendingOps = make(map[string]Operation)
+	m, _ := testModel(claude.ScopeUser, claude.ScopeLocal)
 
 	m.toggleScope()
 
@@ -1838,15 +1770,7 @@ func TestToggleScopeMultiScopeIsNoOp(t *testing.T) {
 
 // TestToggleScopeSingleScopeWorks tests that Tab key still works for single-scope plugins
 func TestToggleScopeSingleScopeWorks(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
-	m.main.pendingOps = make(map[string]Operation)
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.toggleScope()
 
@@ -1871,14 +1795,7 @@ func TestToggleScopeSingleScopeWorks(t *testing.T) {
 // TestOpenScopeDialogForSelectedSingleScope tests opening scope dialog for a single-scope plugin.
 // Verifies plugin-scope-mgmt.AC6.1: dialog opens with checkboxes pre-checked for installed scopes.
 func TestOpenScopeDialogForSelectedSingleScope(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeLocal: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.openScopeDialogForSelected()
 
@@ -1903,15 +1820,7 @@ func TestOpenScopeDialogForSelectedSingleScope(t *testing.T) {
 
 // TestOpenScopeDialogForSelectedMultiScope tests opening scope dialog for multi-scope plugin.
 func TestOpenScopeDialogForSelectedMultiScope(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
-			claude.ScopeUser:    true,
-			claude.ScopeProject: true,
-		}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeUser, claude.ScopeProject)
 
 	m.openScopeDialogForSelected()
 
@@ -1929,12 +1838,7 @@ func TestOpenScopeDialogForSelectedMultiScope(t *testing.T) {
 
 // TestOpenScopeDialogForSelectedNotInstalled tests opening dialog for uninstalled plugin.
 func TestOpenScopeDialogForSelectedNotInstalled(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{}},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 
 	m.openScopeDialogForSelected()
 
