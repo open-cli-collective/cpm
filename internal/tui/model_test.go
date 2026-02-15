@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -37,8 +38,8 @@ func TestPluginStateFromInstalled(t *testing.T) {
 	if state.ID != "test@marketplace" {
 		t.Errorf("ID = %q, want %q", state.ID, "test@marketplace")
 	}
-	if state.InstalledScope != claude.ScopeProject {
-		t.Errorf("InstalledScope = %q, want %q", state.InstalledScope, claude.ScopeProject)
+	if !state.HasScope(claude.ScopeProject) {
+		t.Errorf("HasScope(ScopeProject) = false, want true")
 	}
 	if !state.Enabled {
 		t.Error("Enabled should be true")
@@ -61,8 +62,52 @@ func TestPluginStateFromAvailable(t *testing.T) {
 	if state.Name != "test" {
 		t.Errorf("Name = %q, want %q", state.Name, "test")
 	}
-	if state.InstalledScope != claude.ScopeNone {
-		t.Errorf("InstalledScope = %q, want empty", state.InstalledScope)
+	if state.IsInstalled() {
+		t.Errorf("IsInstalled() = true, want false for available plugin")
+	}
+}
+
+func TestPluginStateHelpers(t *testing.T) {
+	// Not installed
+	ps := PluginState{InstalledScopes: map[claude.Scope]bool{}}
+	if ps.IsInstalled() {
+		t.Error("empty scopes should not be installed")
+	}
+	if ps.HasScope(claude.ScopeUser) {
+		t.Error("empty scopes should not have user scope")
+	}
+
+	// Single scope
+	ps.InstalledScopes = map[claude.Scope]bool{claude.ScopeLocal: true}
+	if !ps.IsInstalled() {
+		t.Error("should be installed")
+	}
+	if !ps.HasScope(claude.ScopeLocal) {
+		t.Error("should have local scope")
+	}
+	if ps.HasScope(claude.ScopeUser) {
+		t.Error("should not have user scope")
+	}
+	if !ps.IsSingleScope() {
+		t.Error("should be single scope")
+	}
+	if ps.SingleScope() != claude.ScopeLocal {
+		t.Errorf("SingleScope = %v, want ScopeLocal", ps.SingleScope())
+	}
+
+	// Multi scope
+	ps.InstalledScopes = map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true}
+	if !ps.IsInstalled() {
+		t.Error("should be installed")
+	}
+	if ps.IsSingleScope() {
+		t.Error("should not be single scope")
+	}
+	if !ps.HasScope(claude.ScopeUser) {
+		t.Error("should have user scope")
+	}
+	if !ps.HasScope(claude.ScopeLocal) {
+		t.Error("should have local scope")
 	}
 }
 
@@ -114,62 +159,58 @@ func (m *mockClient) DisablePlugin(pluginID string, scope claude.Scope) error {
 	return m.err
 }
 
-func TestSelectForInstallLocal(t *testing.T) {
+// testModel creates a Model with a mockClient and a single test plugin.
+// The scopes parameter sets InstalledScopes on the plugin.
+func testModel(scopes ...claude.Scope) (*Model, *mockClient) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
+	scopeMap := make(map[claude.Scope]bool, len(scopes))
+	for _, s := range scopes {
+		scopeMap[s] = true
+	}
 	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
+		{ID: "test@marketplace", Name: "test", InstalledScopes: scopeMap},
 	}
 	m.selectedIdx = 0
+	return m, client
+}
+
+func TestSelectForInstallLocal(t *testing.T) {
+	m, _ := testModel()
 
 	m.selectForInstall(claude.ScopeLocal)
 
 	op, ok := m.main.pendingOps["test@marketplace"]
-	if !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+	if !ok || op.Type != OpInstall || op.Scopes[0] != claude.ScopeLocal {
 		t.Errorf("pendingOps[test@marketplace] = %v, want OpInstall with local scope", op)
 	}
 }
 
 func TestSelectForInstallProject(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 
 	m.selectForInstall(claude.ScopeProject)
 
 	op, ok := m.main.pendingOps["test@marketplace"]
-	if !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
+	if !ok || op.Type != OpInstall || op.Scopes[0] != claude.ScopeProject {
 		t.Errorf("pendingOps[test@marketplace] = %v, want OpInstall with project scope", op)
 	}
 }
 
 func TestSelectForInstallClearsIfSameScope(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
-	}
-	m.selectedIdx = 0
-	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeProject, Type: OpInstall}
+	m, _ := testModel(claude.ScopeLocal)
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall}
 
 	// Selecting local should replace pending (not clear it, since project != local)
 	m.selectForInstall(claude.ScopeLocal)
 
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Scope != claude.ScopeLocal {
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Scopes[0] != claude.ScopeLocal {
 		t.Error("pendingOps should be updated to local scope")
 	}
 }
 
 func TestSelectForUninstall(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	m.selectForUninstall()
 
@@ -180,12 +221,7 @@ func TestSelectForUninstall(t *testing.T) {
 }
 
 func TestSelectForUninstallToggle(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	// First uninstall
 	m.selectForUninstall()
@@ -201,13 +237,8 @@ func TestSelectForUninstallToggle(t *testing.T) {
 }
 
 func TestClearPending(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
-	}
-	m.selectedIdx = 0
-	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
+	m, _ := testModel()
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 
 	m.clearPending("test@marketplace")
 
@@ -217,22 +248,17 @@ func TestClearPending(t *testing.T) {
 }
 
 func TestToggleScopeCycle(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel()
 
 	// None -> Local
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scopes[0] != claude.ScopeLocal {
 		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
 	// Local -> Project
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeProject {
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scopes[0] != claude.ScopeProject {
 		t.Errorf("after second toggle = %v, want OpInstall with project", op)
 	}
 
@@ -244,27 +270,22 @@ func TestToggleScopeCycle(t *testing.T) {
 }
 
 func TestToggleScopeInstalledPlugin(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeLocal},
-	}
-	m.selectedIdx = 0
+	m, _ := testModel(claude.ScopeLocal)
 
 	// Local installed -> Local pending (same scope = install, not migrate)
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scope != claude.ScopeLocal {
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpInstall || op.Scopes[0] != claude.ScopeLocal {
 		t.Errorf("after first toggle = %v, want OpInstall with local", op)
 	}
 
 	// Local pending -> Project pending (different scope = migrate)
 	m.toggleScope()
-	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpMigrate || op.Scope != claude.ScopeProject {
+	if op, ok := m.main.pendingOps["test@marketplace"]; !ok || op.Type != OpMigrate || op.Scopes[0] != claude.ScopeProject {
 		t.Errorf("after second toggle = %v, want OpMigrate with project", op)
 	}
 	// Also verify original scope is preserved
-	if op := m.main.pendingOps["test@marketplace"]; op.OriginalScope != claude.ScopeLocal {
-		t.Errorf("migration should preserve original scope, got %v", op.OriginalScope)
+	if op := m.main.pendingOps["test@marketplace"]; firstScope(op.OriginalScopes) != claude.ScopeLocal {
+		t.Errorf("migration should preserve original scope, got %v", firstScope(op.OriginalScopes))
 	}
 }
 
@@ -288,13 +309,8 @@ func TestSkipsGroupHeaders(t *testing.T) {
 
 // TestUpdateConfirmationEnterStartsExecution tests that Enter in confirmation starts execution.
 func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	m.plugins = []PluginState{
-		{ID: "test@marketplace", Name: "test", InstalledScope: claude.ScopeNone},
-	}
-	m.selectedIdx = 0
-	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
+	m, _ := testModel()
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 	m.main.showConfirm = true
 
 	// Send Enter key
@@ -318,7 +334,7 @@ func TestUpdateConfirmationEnterStartsExecution(t *testing.T) {
 func TestUpdateConfirmationEscapeCancel(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
-	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scope: claude.ScopeLocal, Type: OpInstall}
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 	m.main.showConfirm = true
 
 	// Send Escape key
@@ -344,14 +360,14 @@ func TestStartExecutionBuildsOperations(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.plugins = []PluginState{
-		{ID: "plugin1@market", Name: "plugin1", InstalledScope: claude.ScopeLocal},
-		{ID: "plugin2@market", Name: "plugin2", InstalledScope: claude.ScopeNone},
+		{ID: "plugin1@market", Name: "plugin1", InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
+		{ID: "plugin2@market", Name: "plugin2", InstalledScopes: map[claude.Scope]bool{}},
 	}
 	m.selectedIdx = 0
 
 	// Set pending: uninstall plugin1 (local), install plugin2 (project)
-	m.main.pendingOps["plugin1@market"] = Operation{PluginID: "plugin1@market", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
-	m.main.pendingOps["plugin2@market"] = Operation{PluginID: "plugin2@market", Scope: claude.ScopeProject, Type: OpInstall}
+	m.main.pendingOps["plugin1@market"] = Operation{PluginID: "plugin1@market", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeLocal: true}, Type: OpUninstall}
+	m.main.pendingOps["plugin2@market"] = Operation{PluginID: "plugin2@market", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall}
 
 	result, _ := m.startExecution()
 	m = result.(*Model)
@@ -370,14 +386,14 @@ func TestStartExecutionBuildsOperations(t *testing.T) {
 	found := false
 	for _, op := range m.progress.operations {
 		if op.PluginID == "plugin1@market" && op.Type == OpUninstall {
-			if op.OriginalScope != claude.ScopeLocal {
-				t.Errorf("uninstall OriginalScope = %v, want ScopeLocal", op.OriginalScope)
+			if firstScope(op.OriginalScopes) != claude.ScopeLocal {
+				t.Errorf("uninstall OriginalScope = %v, want ScopeLocal", firstScope(op.OriginalScopes))
 			}
 			found = true
 		}
 	}
 	if !found {
-		t.Error("uninstall operation not found or OriginalScope not set")
+		t.Error("uninstall operation not found or OriginalScopes not set")
 	}
 }
 
@@ -401,7 +417,7 @@ func TestExecuteOperationInstall(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	op := Operation{
 		PluginID: "test@marketplace",
-		Scope:    claude.ScopeLocal,
+		Scopes:   []claude.Scope{claude.ScopeLocal},
 		Type:     OpInstall,
 	}
 
@@ -425,8 +441,15 @@ func TestExecuteOperationInstall(t *testing.T) {
 	}
 }
 
-// TestExecuteOperationUninstallUsesOriginalScope tests that executeOperation uses OriginalScope for uninstalls.
+// TestExecuteOperationUninstallUsesOriginalScope tests that executeOperation uninstalls from specified scopes.
+// This test has been updated for Phase 7 multi-scope behavior: OpUninstall now uses op.Scopes.
 func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write settings file so plugin is recognized as "in settings"
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	os.WriteFile(tmpDir+"/.claude/settings.json", []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+
 	calls := []struct {
 		pluginID string
 		scope    claude.Scope
@@ -442,12 +465,12 @@ func TestExecuteOperationUninstallUsesOriginalScope(t *testing.T) {
 		},
 	}
 
-	m := NewModel(client, "/test/project")
+	m := NewModel(client, tmpDir)
 	op := Operation{
-		PluginID:      "test@marketplace",
-		Scope:         claude.ScopeNone, // marked for uninstall
-		Type:          OpUninstall,
-		OriginalScope: claude.ScopeProject, // was installed at project scope
+		PluginID:       "test@marketplace",
+		Scopes:         []claude.Scope{claude.ScopeProject}, // list of scopes to uninstall from
+		Type:           OpUninstall,
+		OriginalScopes: map[claude.Scope]bool{claude.ScopeProject: true}, // was installed at project scope
 	}
 
 	cmd := m.executeOperation(op)
@@ -480,8 +503,8 @@ func TestUpdateProgressChainedOperations(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+		{PluginID: "p2@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall},
 	}
 	m.progress.currentIdx = 0
 	m.progress.errors = make([]string, 2)
@@ -508,7 +531,7 @@ func TestUpdateProgressCompletesAndShowsSummary(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
 	}
 	m.progress.currentIdx = 0
 	m.progress.errors = make([]string, 1)
@@ -535,8 +558,8 @@ func TestUpdateProgressRecordsErrors(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeProgress
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+		{PluginID: "p2@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall},
 	}
 	m.progress.currentIdx = 0
 	m.progress.errors = make([]string, 2)
@@ -556,7 +579,7 @@ func TestUpdateErrorReturnsToMain(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.mode = ModeSummary
-	m.progress.operations = []Operation{{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall}}
+	m.progress.operations = []Operation{{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}}
 	m.progress.errors = []string{""}
 
 	// Send Enter key
@@ -605,8 +628,8 @@ func TestRenderConfirmationOutput(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
-	m.main.pendingOps["p1@market"] = Operation{PluginID: "p1@market", Scope: claude.ScopeLocal, Type: OpInstall}
-	m.main.pendingOps["p2@market"] = Operation{PluginID: "p2@market", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
+	m.main.pendingOps["p1@market"] = Operation{PluginID: "p1@market", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
+	m.main.pendingOps["p2@market"] = Operation{PluginID: "p2@market", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeLocal: true}, Type: OpUninstall}
 
 	output := m.renderConfirmation(m.styles)
 
@@ -633,10 +656,10 @@ func TestRenderConfirmationWithEnableDisable(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
-	m.main.pendingOps["p1@m"] = Operation{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall}
-	m.main.pendingOps["p2@m"] = Operation{PluginID: "p2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
-	m.main.pendingOps["p3@m"] = Operation{PluginID: "p3@m", Scope: claude.ScopeProject, Type: OpEnable}
-	m.main.pendingOps["p4@m"] = Operation{PluginID: "p4@m", Scope: claude.ScopeLocal, Type: OpDisable}
+	m.main.pendingOps["p1@m"] = Operation{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
+	m.main.pendingOps["p2@m"] = Operation{PluginID: "p2@m", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeLocal: true}, Type: OpUninstall}
+	m.main.pendingOps["p3@m"] = Operation{PluginID: "p3@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpEnable}
+	m.main.pendingOps["p4@m"] = Operation{PluginID: "p4@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpDisable}
 
 	output := m.renderConfirmation(m.styles)
 
@@ -677,8 +700,8 @@ func TestRenderProgressOutput(t *testing.T) {
 	m.height = 30
 	m.mode = ModeProgress
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
-		{PluginID: "p2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeProject},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+		{PluginID: "p2@m", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeProject: true}, Type: OpUninstall},
 	}
 	m.progress.currentIdx = 0
 	m.progress.errors = []string{"", ""}
@@ -707,8 +730,8 @@ func TestRenderErrorSummaryAllSuccess(t *testing.T) {
 	m.height = 30
 	m.mode = ModeSummary
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+		{PluginID: "p2@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall},
 	}
 	m.progress.errors = []string{"", ""}
 
@@ -733,8 +756,8 @@ func TestRenderErrorSummaryWithErrors(t *testing.T) {
 	m.height = 30
 	m.mode = ModeSummary
 	m.progress.operations = []Operation{
-		{PluginID: "p1@m", Scope: claude.ScopeLocal, Type: OpInstall},
-		{PluginID: "p2@m", Scope: claude.ScopeProject, Type: OpInstall},
+		{PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+		{PluginID: "p2@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpInstall},
 	}
 	m.progress.errors = []string{"", "install failed"}
 
@@ -1067,7 +1090,7 @@ func TestHandleRefreshKey(t *testing.T) {
 func TestHandleQuitKeyShowsConfirmation(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
-	m.main.pendingOps["test@m"] = Operation{PluginID: "test@m", Scope: claude.ScopeLocal, Type: OpInstall}
+	m.main.pendingOps["test@m"] = Operation{PluginID: "test@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
 	m.main.showQuitConfirm = false
 
 	result, cmd := m.handleQuitKey()
@@ -1103,8 +1126,8 @@ func TestRenderQuitConfirmation(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.width = 100
 	m.height = 30
-	m.main.pendingOps["plugin1@m"] = Operation{PluginID: "plugin1@m", Scope: claude.ScopeLocal, Type: OpInstall}
-	m.main.pendingOps["plugin2@m"] = Operation{PluginID: "plugin2@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeLocal}
+	m.main.pendingOps["plugin1@m"] = Operation{PluginID: "plugin1@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall}
+	m.main.pendingOps["plugin2@m"] = Operation{PluginID: "plugin2@m", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeLocal: true}, Type: OpUninstall}
 
 	output := m.renderQuitConfirmation(m.styles)
 
@@ -1337,9 +1360,9 @@ func TestToggleEnablement(t *testing.T) {
 	m := &Model{
 		plugins: []PluginState{
 			{
-				ID:             "test@marketplace",
-				InstalledScope: claude.ScopeLocal,
-				Enabled:        true,
+				ID:              "test@marketplace",
+				InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+				Enabled:         true,
 			},
 		},
 		selectedIdx: 0,
@@ -1356,8 +1379,8 @@ func TestToggleEnablement(t *testing.T) {
 	if op.Type != OpDisable {
 		t.Errorf("Type = %v, want OpDisable", op.Type)
 	}
-	if op.Scope != claude.ScopeLocal {
-		t.Errorf("Scope = %v, want ScopeLocal", op.Scope)
+	if op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("Scope = %v, want ScopeLocal", op.Scopes[0])
 	}
 
 	// Second press: should remove pending operation (toggle off)
@@ -1373,9 +1396,9 @@ func TestToggleEnablementBlockedByPendingInstall(t *testing.T) {
 	m := &Model{
 		plugins: []PluginState{
 			{
-				ID:             "test@marketplace",
-				InstalledScope: claude.ScopeLocal,
-				Enabled:        true,
+				ID:              "test@marketplace",
+				InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+				Enabled:         true,
 			},
 		},
 		selectedIdx: 0,
@@ -1385,7 +1408,7 @@ func TestToggleEnablementBlockedByPendingInstall(t *testing.T) {
 	// Add pending install operation
 	m.main.pendingOps["test@marketplace"] = Operation{
 		PluginID: "test@marketplace",
-		Scope:    claude.ScopeProject,
+		Scopes:   []claude.Scope{claude.ScopeProject},
 		Type:     OpInstall,
 	}
 
@@ -1407,9 +1430,9 @@ func TestToggleEnablementNotInstalled(t *testing.T) {
 	m := &Model{
 		plugins: []PluginState{
 			{
-				ID:             "test@marketplace",
-				InstalledScope: claude.ScopeNone, // Not installed
-				Enabled:        false,
+				ID:              "test@marketplace",
+				InstalledScopes: map[claude.Scope]bool{}, // Not installed
+				Enabled:         false,
 			},
 		},
 		selectedIdx: 0,
@@ -1444,7 +1467,7 @@ func TestExecuteOperationEnable(t *testing.T) {
 
 	op := Operation{
 		PluginID: "test@marketplace",
-		Scope:    claude.ScopeLocal,
+		Scopes:   []claude.Scope{claude.ScopeLocal},
 		Type:     OpEnable,
 	}
 
@@ -1486,7 +1509,7 @@ func TestExecuteOperationDisable(t *testing.T) {
 
 	op := Operation{
 		PluginID: "test@marketplace",
-		Scope:    claude.ScopeProject,
+		Scopes:   []claude.Scope{claude.ScopeProject},
 		Type:     OpDisable,
 	}
 
@@ -1514,10 +1537,10 @@ func TestOperationOrderingWithEnableDisable(t *testing.T) {
 	m := &Model{
 		main: MainState{
 			pendingOps: map[string]Operation{
-				"p1@m": {PluginID: "p1@m", Scope: claude.ScopeProject, Type: OpDisable},
-				"p2@m": {PluginID: "p2@m", Scope: claude.ScopeLocal, Type: OpInstall},
-				"p3@m": {PluginID: "p3@m", Scope: claude.ScopeLocal, Type: OpEnable},
-				"p4@m": {PluginID: "p4@m", Scope: claude.ScopeNone, Type: OpUninstall, OriginalScope: claude.ScopeUser},
+				"p1@m": {PluginID: "p1@m", Scopes: []claude.Scope{claude.ScopeProject}, Type: OpDisable},
+				"p2@m": {PluginID: "p2@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpInstall},
+				"p3@m": {PluginID: "p3@m", Scopes: []claude.Scope{claude.ScopeLocal}, Type: OpEnable},
+				"p4@m": {PluginID: "p4@m", Scopes: []claude.Scope{}, OriginalScopes: map[claude.Scope]bool{claude.ScopeUser: true}, Type: OpUninstall},
 			},
 		},
 		client: &mockClient{},
@@ -1572,9 +1595,9 @@ func TestToggleEnablementUsesInstalledScope(t *testing.T) {
 			m := &Model{
 				plugins: []PluginState{
 					{
-						ID:             "test@marketplace",
-						InstalledScope: tt.installedScope,
-						Enabled:        tt.enabled,
+						ID:              "test@marketplace",
+						InstalledScopes: map[claude.Scope]bool{tt.installedScope: true},
+						Enabled:         tt.enabled,
 					},
 				},
 				selectedIdx: 0,
@@ -1590,9 +1613,938 @@ func TestToggleEnablementUsesInstalledScope(t *testing.T) {
 			if op.Type != tt.wantType {
 				t.Errorf("Type = %v, want %v", op.Type, tt.wantType)
 			}
-			if op.Scope != tt.installedScope {
-				t.Errorf("Scope = %v, want %v", op.Scope, tt.installedScope)
+			if op.Scopes[0] != tt.installedScope {
+				t.Errorf("Scope = %v, want %v", op.Scopes[0], tt.installedScope)
 			}
 		})
+	}
+}
+
+// --- Multi-scope context-aware key behavior tests (plugin-scope-mgmt.AC5) ---
+
+// TestSelectForInstallMultiScopeOpensDialog tests AC5.1: multi-scope on install key opens scope dialog
+func TestSelectForInstallMultiScopeOpensDialog(t *testing.T) {
+	m, _ := testModel(claude.ScopeUser, claude.ScopeLocal)
+
+	m.selectForInstall(claude.ScopeProject)
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+	// Verify dialog state
+	if m.main.scopeDialog.pluginID != "test@marketplace" {
+		t.Errorf("scopeDialog.pluginID = %q, want 'test@marketplace'", m.main.scopeDialog.pluginID)
+	}
+	// Verify Project scope is pre-toggled
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be pre-toggled (scopes[1])")
+	}
+}
+
+// TestSelectForInstallSingleScopeCreatesOp tests that single-scope plugins still create operations
+func TestSelectForInstallSingleScopeCreatesOp(t *testing.T) {
+	m, _ := testModel(claude.ScopeLocal)
+
+	m.selectForInstall(claude.ScopeProject)
+
+	// Should NOT transition to scope dialog; should create migrate operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpMigrate {
+		t.Errorf("Type = %v, want OpMigrate", op.Type)
+	}
+}
+
+// TestSelectForUninstallMultiScopeOpensDialog tests AC5.2: multi-scope on uninstall key opens dialog
+func TestSelectForUninstallMultiScopeOpensDialog(t *testing.T) {
+	m, _ := testModel(claude.ScopeUser, claude.ScopeProject)
+
+	m.selectForUninstall()
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+	// Verify dialog state contains original scopes
+	if !m.main.scopeDialog.scopes[0] || !m.main.scopeDialog.scopes[1] {
+		t.Error("dialog should preserve original scopes")
+	}
+}
+
+// TestSelectForUninstallSingleScopeCreatesOp tests that single-scope plugins still create uninstall ops
+func TestSelectForUninstallSingleScopeCreatesOp(t *testing.T) {
+	m, _ := testModel(claude.ScopeLocal)
+
+	m.selectForUninstall()
+
+	// Should NOT transition to scope dialog; should create uninstall operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpUninstall {
+		t.Errorf("Type = %v, want OpUninstall", op.Type)
+	}
+}
+
+// TestToggleEnablementMultiScopeOpensDialog tests AC5.3: multi-scope on toggle enablement opens dialog
+func TestToggleEnablementMultiScopeOpensDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeUser:  true,
+			claude.ScopeLocal: true,
+		}, Enabled: true},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleEnablement()
+
+	// Should transition to ModeScopeDialog, not create a pending operation
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("should not create pending operation for multi-scope plugin")
+	}
+}
+
+// TestToggleEnablementSingleScopeCreatesOp tests that single-scope plugins still toggle enable/disable
+func TestToggleEnablementSingleScopeCreatesOp(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.plugins = []PluginState{
+		{ID: "test@marketplace", Name: "test", InstalledScopes: map[claude.Scope]bool{
+			claude.ScopeLocal: true,
+		}, Enabled: true},
+	}
+	m.selectedIdx = 0
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.toggleEnablement()
+
+	// Should NOT transition to scope dialog; should create disable operation
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpDisable {
+		t.Errorf("Type = %v, want OpDisable", op.Type)
+	}
+}
+
+// TestToggleScopeMultiScopeIsNoOp tests AC5.4: Tab key is no-op on multi-scope plugins
+func TestToggleScopeMultiScopeIsNoOp(t *testing.T) {
+	m, _ := testModel(claude.ScopeUser, claude.ScopeLocal)
+
+	m.toggleScope()
+
+	// Should be no-op: mode should stay ModeMain, no pending operations
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain (should not change)", m.mode)
+	}
+	if len(m.main.pendingOps) > 0 {
+		t.Error("toggleScope should be no-op for multi-scope, no operations should be created")
+	}
+}
+
+// TestToggleScopeSingleScopeWorks tests that Tab key still works for single-scope plugins
+func TestToggleScopeSingleScopeWorks(t *testing.T) {
+	m, _ := testModel(claude.ScopeLocal)
+
+	m.toggleScope()
+
+	// Should create operation: none -> local
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation for single-scope plugin")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("Scope = %v, want ScopeLocal", op.Scopes[0])
+	}
+}
+
+// --- Scope Dialog Tests (plugin-scope-mgmt.AC6) ---
+
+// TestOpenScopeDialogForSelectedSingleScope tests opening scope dialog for a single-scope plugin.
+// Verifies plugin-scope-mgmt.AC6.1: dialog opens with checkboxes pre-checked for installed scopes.
+func TestOpenScopeDialogForSelectedSingleScope(t *testing.T) {
+	m, _ := testModel(claude.ScopeLocal)
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if m.main.scopeDialog.pluginID != "test@marketplace" {
+		t.Errorf("pluginID = %q, want 'test@marketplace'", m.main.scopeDialog.pluginID)
+	}
+	// Verify Local scope is checked
+	if !m.main.scopeDialog.scopes[2] {
+		t.Error("Local scope should be checked (scopes[2] = true)")
+	}
+	// Verify User and Project are not checked
+	if m.main.scopeDialog.scopes[0] || m.main.scopeDialog.scopes[1] {
+		t.Error("User and Project scopes should not be checked")
+	}
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor = %d, want 0", m.main.scopeDialog.cursor)
+	}
+}
+
+// TestOpenScopeDialogForSelectedMultiScope tests opening scope dialog for multi-scope plugin.
+func TestOpenScopeDialogForSelectedMultiScope(t *testing.T) {
+	m, _ := testModel(claude.ScopeUser, claude.ScopeProject)
+
+	m.openScopeDialogForSelected()
+
+	// Verify User and Project are checked, Local is not
+	if !m.main.scopeDialog.scopes[0] {
+		t.Error("User scope should be checked (scopes[0] = true)")
+	}
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be checked (scopes[1] = true)")
+	}
+	if m.main.scopeDialog.scopes[2] {
+		t.Error("Local scope should not be checked (scopes[2] = false)")
+	}
+}
+
+// TestOpenScopeDialogForSelectedNotInstalled tests opening dialog for uninstalled plugin.
+func TestOpenScopeDialogForSelectedNotInstalled(t *testing.T) {
+	m, _ := testModel()
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Errorf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	// No scopes should be checked
+	if m.main.scopeDialog.scopes[0] || m.main.scopeDialog.scopes[1] || m.main.scopeDialog.scopes[2] {
+		t.Error("no scopes should be checked for uninstalled plugin")
+	}
+}
+
+// TestUpdateScopeDialogUpDown tests cursor navigation with up/down keys.
+// Verifies plugin-scope-mgmt.AC6.2: Up/Down moves cursor through dialog items.
+func TestUpdateScopeDialogUpDown(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		cursor:         1,
+		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true},
+	}
+	m.keys = DefaultKeyBindings()
+
+	// Move down
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 2 {
+		t.Errorf("cursor after down = %d, want 2", m.main.scopeDialog.cursor)
+	}
+
+	// Move up
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 1 {
+		t.Errorf("cursor after up = %d, want 1", m.main.scopeDialog.cursor)
+	}
+
+	// Move up to 0
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor after up = %d, want 0", m.main.scopeDialog.cursor)
+	}
+
+	// Try to move up past 0 (should stay at 0)
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.cursor != 0 {
+		t.Errorf("cursor should not go below 0, got %d", m.main.scopeDialog.cursor)
+	}
+}
+
+// TestUpdateScopeDialogSpaceToggle tests space toggling checkbox state.
+// Verifies plugin-scope-mgmt.AC6.2: Space toggles checkbox at cursor.
+func TestUpdateScopeDialogSpaceToggle(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		cursor:         0,
+		scopes:         [3]bool{false, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+
+	// Toggle on User scope
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if !m.main.scopeDialog.scopes[0] {
+		t.Error("User scope should be checked after space")
+	}
+
+	// Move to Project
+	msg = tea.KeyMsg{Type: tea.KeyDown}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	// Toggle on Project scope
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if !m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be checked after space")
+	}
+
+	// Toggle off Project scope
+	result, _ = m.updateScopeDialog(msg)
+	m = result.(*Model)
+	if m.main.scopeDialog.scopes[1] {
+		t.Error("Project scope should be unchecked after second space")
+	}
+}
+
+// TestUpdateScopeDialogEnter tests Enter key applies delta and returns to main.
+// Verifies plugin-scope-mgmt.AC6.2: Enter computes delta and creates pending operations.
+func TestUpdateScopeDialogEnter(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.keys = DefaultKeyBindings()
+
+	// Press Enter to apply
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+
+	// Verify pending operation was created (user scope install)
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Error("expected pending operation after Enter")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
+	}
+}
+
+// TestUpdateScopeDialogEscape tests Escape key cancels without applying.
+// Verifies plugin-scope-mgmt.AC6.2: Esc exits dialog without changes.
+func TestUpdateScopeDialogEscape(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.keys = DefaultKeyBindings()
+
+	// Press Escape
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	result, _ := m.updateScopeDialog(msg)
+	m = result.(*Model)
+
+	if m.mode != ModeMain {
+		t.Errorf("mode = %v, want ModeMain", m.mode)
+	}
+
+	// No pending operation should be created
+	if len(m.main.pendingOps) > 0 {
+		t.Error("no pending operations should be created on Escape")
+	}
+}
+
+// TestApplyScopeDialogDeltaCheckInstall tests delta computation for checking a new scope.
+// Verifies plugin-scope-mgmt.AC6.3: Checking new scope creates OpInstall.
+func TestApplyScopeDialogDeltaCheckInstall(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaCheckUninstall tests delta computation for unchecking a scope.
+// Verifies plugin-scope-mgmt.AC6.3: Unchecking scope creates OpUninstall.
+func TestApplyScopeDialogDeltaCheckUninstall(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{false, false, false},
+		originalScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpUninstall {
+		t.Errorf("Type = %v, want OpUninstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("Scopes = %v, want [ScopeLocal]", op.Scopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaMixed tests delta computation with both install and uninstall.
+// Verifies plugin-scope-mgmt.AC6.3: Mixed changes create OpScopeChange.
+func TestApplyScopeDialogDeltaMixed(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID: "test@marketplace",
+		// Originally installed at Project and Local, now checking User and unchecking Project
+		scopes:         [3]bool{true, false, true},
+		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true, claude.ScopeLocal: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["test@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation")
+	}
+	if op.Type != OpScopeChange {
+		t.Errorf("Type = %v, want OpScopeChange", op.Type)
+	}
+	// Should have User as install scope
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes (install) = %v, want [ScopeUser]", op.Scopes)
+	}
+	// Should have Project as uninstall scope
+	if len(op.UninstallScopes) != 1 || op.UninstallScopes[0] != claude.ScopeProject {
+		t.Errorf("UninstallScopes = %v, want [ScopeProject]", op.UninstallScopes)
+	}
+}
+
+// TestApplyScopeDialogDeltaNoChange tests delta computation when nothing changes.
+// Verifies plugin-scope-mgmt.AC6.3: No changes clears pending operation.
+func TestApplyScopeDialogDeltaNoChange(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "test@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{claude.ScopeUser: true},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Type: OpInstall}
+
+	m.applyScopeDialogDelta()
+
+	// Pending operation should be cleared
+	if len(m.main.pendingOps) > 0 {
+		t.Error("pending operation should be cleared when no changes")
+	}
+}
+
+// TestRenderScopeDialog tests dialog rendering with checkbox display.
+// Verifies plugin-scope-mgmt.AC6.1 and AC6.4: Dialog renders with scope names and file paths.
+func TestRenderScopeDialog(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.width = 100
+	m.height = 30
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, true},
+		cursor:   1,
+	}
+
+	output := m.renderScopeDialog(m.styles)
+
+	// Check title
+	if !strings.Contains(output, "test@marketplace") {
+		t.Error("output should contain plugin ID")
+	}
+
+	// Check scope names
+	if !strings.Contains(output, "User") {
+		t.Error("output should contain 'User' scope name")
+	}
+	if !strings.Contains(output, "Project") {
+		t.Error("output should contain 'Project' scope name")
+	}
+	if !strings.Contains(output, "Local") {
+		t.Error("output should contain 'Local' scope name")
+	}
+
+	// Check file paths (AC6.4)
+	if !strings.Contains(output, "~/.claude/settings.json") {
+		t.Error("output should contain User scope path")
+	}
+	if !strings.Contains(output, ".claude/settings.json") {
+		t.Error("output should contain Project scope path")
+	}
+	if !strings.Contains(output, ".claude/settings.local.json") {
+		t.Error("output should contain Local scope path")
+	}
+
+	// Check checkbox indicators
+	if !strings.Contains(output, "[x]") {
+		t.Error("output should contain checked boxes")
+	}
+	if !strings.Contains(output, "[ ]") {
+		t.Error("output should contain unchecked boxes")
+	}
+
+	// Check cursor indicator
+	if !strings.Contains(output, "> ") {
+		t.Error("output should contain cursor indicator")
+	}
+
+	// Check help text
+	if !strings.Contains(output, "space") || !strings.Contains(output, "Enter") || !strings.Contains(output, "Esc") {
+		t.Error("output should contain help text with space, Enter, and Esc instructions")
+	}
+}
+
+// TestExecuteOperationInstallWhenNotInSettings tests plugin-scope-mgmt.AC7.1
+// When a plugin is not in settings, OpInstall should call InstallPlugin.
+func TestExecuteOperationInstallWhenNotInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Track which methods were called
+	var installCalled, enableCalled bool
+	client.installFn = func(pluginID string, scope claude.Scope) error {
+		installCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("InstallPlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+	client.enableFn = func(_ string, _ claude.Scope) error {
+		enableCalled = true
+		return fmt.Errorf("should not call EnablePlugin when not in settings")
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if !installCalled {
+		t.Error("InstallPlugin was not called")
+	}
+	if enableCalled {
+		t.Error("EnablePlugin was unexpectedly called")
+	}
+}
+
+// TestExecuteOperationInstallWhenInSettings tests plugin-scope-mgmt.AC7.1
+// When a plugin already exists in settings, OpInstall should call EnablePlugin.
+func TestExecuteOperationInstallWhenInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Write settings file with plugin already installed at ScopeLocal
+	settingsPath := tmpDir + "/.claude/settings.local.json"
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	err := os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write settings file: %v", err)
+	}
+
+	// Track which methods were called
+	var installCalled, enableCalled bool
+	client.installFn = func(_ string, _ claude.Scope) error {
+		installCalled = true
+		return fmt.Errorf("should not call InstallPlugin when already in settings")
+	}
+	client.enableFn = func(pluginID string, scope claude.Scope) error {
+		enableCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("EnablePlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if installCalled {
+		t.Error("InstallPlugin was unexpectedly called")
+	}
+	if !enableCalled {
+		t.Error("EnablePlugin was not called")
+	}
+}
+
+// TestExecuteOperationUninstallWhenInSettings tests plugin-scope-mgmt.AC7.2
+// When a plugin exists in settings, OpUninstall should call UninstallPlugin.
+func TestExecuteOperationUninstallWhenInSettings(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Write settings file with plugin installed at ScopeLocal
+	os.Mkdir(tmpDir+"/.claude", 0o755)
+	err := os.WriteFile(tmpDir+"/.claude/settings.local.json", []byte(`{"enabledPlugins":{"test@marketplace":true}}`), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write settings file: %v", err)
+	}
+
+	// Track which methods were called
+	var uninstallCalled, disableCalled bool
+	client.uninstallFn = func(pluginID string, scope claude.Scope) error {
+		uninstallCalled = true
+		if pluginID != "test@marketplace" || scope != claude.ScopeLocal {
+			t.Errorf("UninstallPlugin called with pluginID=%s, scope=%s; expected test@marketplace, ScopeLocal", pluginID, scope)
+		}
+		return nil
+	}
+	client.disableFn = func(_ string, _ claude.Scope) error {
+		disableCalled = true
+		return fmt.Errorf("should not call DisablePlugin when in settings")
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+		Type:     OpUninstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	if opMsg, ok := msg.(operationDoneMsg); ok {
+		if opMsg.err != nil {
+			t.Errorf("executeOperation returned error: %v", opMsg.err)
+		}
+	} else {
+		t.Errorf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if !uninstallCalled {
+		t.Error("UninstallPlugin was not called")
+	}
+	if disableCalled {
+		t.Error("DisablePlugin was unexpectedly called")
+	}
+}
+
+// TestExecuteOperationMultiScopeStopsOnFirstError tests plugin-scope-mgmt.AC7.3
+// Multi-scope operations should stop on first error and report which scope failed.
+func TestExecuteOperationMultiScopeStopsOnFirstError(t *testing.T) {
+	client := &mockClient{}
+	tmpDir := t.TempDir()
+
+	// Track which scopes were attempted
+	var attemptedScopes []claude.Scope
+	client.installFn = func(_ string, scope claude.Scope) error {
+		attemptedScopes = append(attemptedScopes, scope)
+		// Fail on second scope
+		if len(attemptedScopes) == 2 {
+			return fmt.Errorf("network error")
+		}
+		return nil
+	}
+
+	m := NewModel(client, tmpDir)
+	op := Operation{
+		PluginID: "test@marketplace",
+		Scopes:   []claude.Scope{claude.ScopeLocal, claude.ScopeProject, claude.ScopeUser},
+		Type:     OpInstall,
+	}
+
+	// Execute the operation
+	cmd := m.executeOperation(op)
+	msg := cmd()
+
+	// Check result
+	opMsg, ok := msg.(operationDoneMsg)
+	if !ok {
+		t.Fatalf("expected operationDoneMsg, got %T", msg)
+	}
+
+	if opMsg.err == nil {
+		t.Error("expected error, got nil")
+	}
+
+	// Check error message includes scope name
+	if !strings.Contains(opMsg.err.Error(), "scope") {
+		t.Errorf("error message should include 'scope', got: %v", opMsg.err)
+	}
+	if !strings.Contains(opMsg.err.Error(), "project") {
+		t.Errorf("error message should include 'project' scope, got: %v", opMsg.err)
+	}
+
+	// Only first scope should have been attempted before failure
+	if len(attemptedScopes) != 2 {
+		t.Errorf("expected 2 scopes attempted, got %d", len(attemptedScopes))
+	}
+}
+
+// TestStartExecutionOperationOrdering tests plugin-scope-mgmt.AC7.4
+// Operations should be sorted in correct order: Uninstall, Migrate, ScopeChange, Update, Install, Enable, Disable
+func TestStartExecutionOperationOrdering(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test")
+	m.plugins = []PluginState{}
+	m.mode = ModeMain
+
+	// Create pending operations in random order
+	m.main.pendingOps = map[string]Operation{
+		"plugin1": {PluginID: "plugin1", Type: OpEnable, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin2": {PluginID: "plugin2", Type: OpInstall, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin3": {PluginID: "plugin3", Type: OpUninstall, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin4": {PluginID: "plugin4", Type: OpUpdate, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin5": {PluginID: "plugin5", Type: OpMigrate, Scopes: []claude.Scope{claude.ScopeLocal}, OriginalScopes: map[claude.Scope]bool{claude.ScopeProject: true}},
+		"plugin6": {PluginID: "plugin6", Type: OpDisable, Scopes: []claude.Scope{claude.ScopeLocal}},
+		"plugin7": {PluginID: "plugin7", Type: OpScopeChange, Scopes: []claude.Scope{claude.ScopeLocal}, UninstallScopes: []claude.Scope{claude.ScopeProject}},
+	}
+
+	// Call startExecution
+	model, _ := m.startExecution()
+	m = model.(*Model)
+
+	// Check ordering
+	expectedOrder := []OperationType{
+		OpUninstall,   // 0
+		OpMigrate,     // 1
+		OpScopeChange, // 2
+		OpUpdate,      // 3
+		OpInstall,     // 4
+		OpEnable,      // 5
+		OpDisable,     // 6
+	}
+
+	if len(m.progress.operations) != len(expectedOrder) {
+		t.Fatalf("expected %d operations, got %d", len(expectedOrder), len(m.progress.operations))
+	}
+
+	for i, op := range m.progress.operations {
+		if op.Type != expectedOrder[i] {
+			t.Errorf("operation %d: Type = %v, want %v", i, op.Type, expectedOrder[i])
+		}
+	}
+}
+
+// TestFormatScopeSet_SingleScope tests AC4.1
+// Call formatScopeSet with single scope map, verify output is the scope label (e.g., "USER")
+func TestFormatScopeSet_SingleScope(t *testing.T) {
+	scopes := map[claude.Scope]bool{claude.ScopeUser: true}
+	result := formatScopeSet(scopes)
+	expected := "USER"
+	if result != expected {
+		t.Errorf("formatScopeSet(single scope) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatScopeSet_MultiScope tests AC4.1
+// Call with {ScopeUser: true, ScopeLocal: true}, verify output is "USER, LOCAL"
+func TestFormatScopeSet_MultiScope(t *testing.T) {
+	scopes := map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true}
+	result := formatScopeSet(scopes)
+	expected := "USER, LOCAL"
+	if result != expected {
+		t.Errorf("formatScopeSet(multi scope) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatScopeSet_Ordering tests AC4.1
+// Call with all 3 scopes, verify output order is "USER, PROJECT, LOCAL" (canonical order)
+func TestFormatScopeSet_Ordering(t *testing.T) {
+	scopes := map[claude.Scope]bool{
+		claude.ScopeUser:    true,
+		claude.ScopeProject: true,
+		claude.ScopeLocal:   true,
+	}
+	result := formatScopeSet(scopes)
+	expected := "USER, PROJECT, LOCAL"
+	if result != expected {
+		t.Errorf("formatScopeSet(all scopes) = %q, want %q", result, expected)
+	}
+}
+
+// TestRenderPendingIndicator_PartialUninstall tests AC4.2
+// Create Operation with OpUninstall and multi-scope PluginState, verify output contains transition text
+func TestRenderPendingIndicator_PartialUninstall(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID:       "test@marketplace",
+		Type:           OpUninstall,
+		Scopes:         []claude.Scope{claude.ScopeLocal},
+		OriginalScopes: map[claude.Scope]bool{claude.ScopeUser: true, claude.ScopeLocal: true},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(partial uninstall) should contain transition arrow '->': %q", result)
+	}
+	if !strings.Contains(result, "USER") {
+		t.Errorf("renderPendingIndicator(partial uninstall) should contain 'USER': %q", result)
+	}
+}
+
+// TestRenderPendingIndicator_ScopeChange tests AC4.2
+// Create OpScopeChange operation, verify output shows scope transition
+func TestRenderPendingIndicator_ScopeChange(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID:        "test@marketplace",
+		Type:            OpScopeChange,
+		Scopes:          []claude.Scope{claude.ScopeProject},
+		UninstallScopes: []claude.Scope{claude.ScopeLocal},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(scope change) should contain transition arrow '->': %q", result)
+	}
+	if !strings.Contains(result, "LOCAL") {
+		t.Errorf("renderPendingIndicator(scope change) should contain 'LOCAL': %q", result)
+	}
+	if !strings.Contains(result, "PROJECT") {
+		t.Errorf("renderPendingIndicator(scope change) should contain 'PROJECT': %q", result)
+	}
+}
+
+// TestRenderPendingIndicator_MultiScopeInstall tests AC4.2
+// Create OpInstall on existing multi-scope plugin, verify output shows combined scopes
+func TestRenderPendingIndicator_MultiScopeInstall(t *testing.T) {
+	plugin := PluginState{
+		ID:              "test@marketplace",
+		InstalledScopes: map[claude.Scope]bool{claude.ScopeUser: true},
+		IsGroupHeader:   false,
+	}
+	op := Operation{
+		PluginID: "test@marketplace",
+		Type:     OpInstall,
+		Scopes:   []claude.Scope{claude.ScopeLocal},
+	}
+
+	styles := DefaultStyles()
+	result := renderPendingIndicator(op, plugin, styles)
+
+	// The result contains ANSI codes, so check for expected text fragments
+	if !strings.Contains(result, "->") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain transition arrow '->': %q", result)
+	}
+	// Should show combined scopes (USER and LOCAL)
+	if !strings.Contains(result, "USER") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain 'USER': %q", result)
+	}
+	if !strings.Contains(result, "LOCAL") {
+		t.Errorf("renderPendingIndicator(multi-scope install) should contain 'LOCAL': %q", result)
 	}
 }

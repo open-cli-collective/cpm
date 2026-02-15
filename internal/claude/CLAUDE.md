@@ -1,6 +1,6 @@
 # Claude CLI Client
 
-Last verified: 2026-01-26
+Last verified: 2026-02-14
 
 ## Purpose
 
@@ -12,7 +12,7 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 - **Exposes**: `ReadPluginManifest(installPath)` - reads plugin.json for metadata
 - **Exposes**: `ScanPluginComponents(installPath)` - discovers skills, agents, commands, hooks, MCPs
 - **Exposes**: `ResolveMarketplaceSourcePath(marketplace, source)` - resolves local marketplace paths
-- **Exposes**: `GetProjectEnabledPlugins(workingDir)` - reads project settings files to get enabled plugins
+- **Exposes**: `GetAllEnabledPlugins(workingDir)` - reads all three settings files (user, project, local) to get multi-scope plugin data
 - **Exposes**: `ReadProjectSettings(settingsPath)` - reads a single settings file
 - **Guarantees**: Returns structured `PluginList` with typed `InstalledPlugin`/`AvailablePlugin`. Errors include stderr output.
 - **Expects**: `claude` binary in PATH (or custom path via `NewClientWithPath`)
@@ -29,8 +29,8 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 - Shell out vs. library: Claude Code has no Go SDK; CLI is the only integration point
 - JSON parsing: Uses `claude plugin list --json --available` for structured data
 - Manifest parsing: Handles flexible author field (string or object format)
-- Install/Uninstall use enable/disable: `InstallPlugin` calls `claude plugin enable`, `UninstallPlugin` calls `claude plugin disable` (semantically correct for project-scoped operations)
-- Settings as source of truth: Project settings files (`.claude/settings.json`, `.claude/settings.local.json`) determine which plugins are enabled for a project, not the CLI's `projectPath` field
+- Install/Uninstall use install/uninstall: `InstallPlugin` calls `claude plugin install`, `UninstallPlugin` calls `claude plugin uninstall`. `EnablePlugin`/`DisablePlugin` use `enable`/`disable` for toggling state of already-installed plugins.
+- Multi-scope detection: All three settings files (user, project, local) are read to build a complete `ScopeState` map. This enables later phases to render and manage plugins across multiple scopes from a single data structure.
 
 ## Invariants
 

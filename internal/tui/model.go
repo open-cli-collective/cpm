@@ -19,7 +19,37 @@ const (
 	OpUpdate
 	OpEnable
 	OpDisable
+	OpScopeChange // Mixed scope change: install some scopes + uninstall others
 )
+
+// operationMeta holds display metadata for an operation type.
+type operationMeta struct {
+	Verb    string // "Install", "Uninstall", "Move", etc.
+	Noun    string // "install(s)", "uninstall(s)", etc. for summaries
+	Pending string // "Will be installed to", "Will be uninstalled", etc.
+}
+
+// meta returns the display metadata for this operation type.
+func (t OperationType) meta() operationMeta {
+	switch t {
+	case OpInstall:
+		return operationMeta{"Install", "install(s)", "Will be installed to"}
+	case OpUninstall:
+		return operationMeta{"Uninstall", "uninstall(s)", "Will be uninstalled"}
+	case OpMigrate:
+		return operationMeta{"Move", "migration(s)", "Will be moved from"}
+	case OpUpdate:
+		return operationMeta{"Update", "update(s)", "Will be updated"}
+	case OpEnable:
+		return operationMeta{"Enable", "enable(s)", "Will be enabled"}
+	case OpDisable:
+		return operationMeta{"Disable", "disable(s)", "Will be disabled"}
+	case OpScopeChange:
+		return operationMeta{"Scope change", "scope change(s)", "Will change scopes"}
+	default:
+		return operationMeta{"Unknown", "unknown(s)", "Unknown operation"}
+	}
+}
 
 // Mode represents the current UI mode.
 type Mode int
@@ -35,6 +65,8 @@ const (
 	ModeDoc
 	// ModeConfig shows plugin configuration files.
 	ModeConfig
+	// ModeScopeDialog shows the scope selection dialog.
+	ModeScopeDialog
 )
 
 // DocType represents the type of document being viewed.
@@ -89,7 +121,7 @@ type PluginState struct {
 	InstallPath      string
 	ExternalURL      string
 	LastUpdated      string
-	InstalledScope   claude.Scope
+	InstalledScopes  map[claude.Scope]bool // Scopes where this plugin is installed; value = enabled state
 	Name             string
 	InstallCount     int
 	Enabled          bool
@@ -105,14 +137,14 @@ func PluginStateFromInstalled(p claude.InstalledPlugin) PluginState {
 	name, marketplace := parsePluginID(p.ID)
 
 	state := PluginState{
-		ID:             p.ID,
-		Name:           name,
-		Marketplace:    marketplace,
-		Version:        p.Version,
-		InstalledScope: p.Scope,
-		Enabled:        p.Enabled,
-		InstallPath:    p.InstallPath,
-		LastUpdated:    p.LastUpdated,
+		ID:              p.ID,
+		Name:            name,
+		Marketplace:     marketplace,
+		Version:         p.Version,
+		InstalledScopes: map[claude.Scope]bool{p.Scope: true},
+		Enabled:         p.Enabled,
+		InstallPath:     p.InstallPath,
+		LastUpdated:     p.LastUpdated,
 	}
 
 	// Read manifest for description and author
@@ -138,13 +170,13 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 	}
 
 	state := PluginState{
-		ID:             p.PluginID,
-		Name:           name,
-		Description:    p.Description,
-		Marketplace:    p.MarketplaceName,
-		Version:        p.Version,
-		InstallCount:   p.InstallCount,
-		InstalledScope: claude.ScopeNone,
+		ID:              p.PluginID,
+		Name:            name,
+		Description:     p.Description,
+		Marketplace:     p.MarketplaceName,
+		Version:         p.Version,
+		InstallCount:    p.InstallCount,
+		InstalledScopes: map[claude.Scope]bool{},
 	}
 
 	// Try to resolve the marketplace source path to get additional info
@@ -186,10 +218,53 @@ func parsePluginID(id string) (name, marketplace string) {
 	return id, ""
 }
 
+// IsInstalled returns true if the plugin is installed at any scope.
+func (ps *PluginState) IsInstalled() bool {
+	return len(ps.InstalledScopes) > 0
+}
+
+// HasScope returns true if the plugin is installed at the given scope.
+func (ps *PluginState) HasScope(s claude.Scope) bool {
+	_, ok := ps.InstalledScopes[s]
+	return ok
+}
+
+// IsSingleScope returns true if the plugin is installed at exactly one scope.
+func (ps *PluginState) IsSingleScope() bool {
+	return len(ps.InstalledScopes) == 1
+}
+
+// SingleScope returns the single scope the plugin is installed at.
+// Only valid when IsSingleScope() is true.
+func (ps *PluginState) SingleScope() claude.Scope {
+	for s := range ps.InstalledScopes {
+		return s
+	}
+	return claude.ScopeNone
+}
+
+// firstScope returns the first key from a scope map. Used where exactly one scope is expected.
+func firstScope(m map[claude.Scope]bool) claude.Scope {
+	for s := range m {
+		return s
+	}
+	return claude.ScopeNone
+}
+
+// copyMap creates a shallow copy of a scope map.
+func copyMap(m map[claude.Scope]bool) map[claude.Scope]bool {
+	result := make(map[claude.Scope]bool, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
+}
+
 // MainState holds state for the main two-pane view.
 type MainState struct {
 	pendingOps      map[string]Operation
 	bulkSelected    map[string]bool // Tracks plugins selected for bulk operations
+	scopeDialog     scopeDialogState
 	sortMode        SortMode
 	showConfirm     bool
 	showQuitConfirm bool
@@ -217,6 +292,14 @@ type ConfigState struct {
 	scroll  int    // Scroll position
 }
 
+// scopeDialogState holds the state for the multi-scope dialog.
+type scopeDialogState struct {
+	originalScopes map[claude.Scope]bool // installed scopes before dialog
+	pluginID       string
+	cursor         int     // highlighted row (0-2)
+	scopes         [3]bool // checkbox state: [user, project, local]
+}
+
 // ProgressState holds state for operation progress.
 type ProgressState struct {
 	operations []Operation
@@ -228,18 +311,18 @@ type ProgressState struct {
 // Model is the main application model.
 // Fields ordered for optimal memory alignment (pointers/slices first, bools last).
 type Model struct {
-	err         error
 	client      claude.Client
+	err         error
 	styles      Styles
 	workingDir  string
 	keys        KeyBindings
 	config      ConfigState
-	main        MainState
 	plugins     []PluginState
-	filter      FilterState
 	filteredIdx []int
+	filter      FilterState
 	doc         DocState
 	progress    ProgressState
+	main        MainState
 	mode        Mode
 	height      int
 	width       int
@@ -288,10 +371,11 @@ type pluginsErrorMsg struct {
 
 // Operation represents a pending change to execute.
 type Operation struct {
-	PluginID      string
-	Scope         claude.Scope
-	OriginalScope claude.Scope  // For uninstalls: the original scope to uninstall from
-	Type          OperationType // Operation type: install, uninstall, enable, or disable
+	PluginID        string
+	Scopes          []claude.Scope        // Target scopes for this operation
+	OriginalScopes  map[claude.Scope]bool // Scopes plugin was at before this operation
+	UninstallScopes []claude.Scope        // For OpScopeChange: scopes to remove
+	Type            OperationType
 }
 
 // operationDoneMsg is sent when an operation completes.
@@ -314,20 +398,20 @@ func (m *Model) loadPlugins() tea.Msg {
 // mergePlugins combines installed and available plugins, grouped by marketplace.
 // Only installed plugins relevant to workingDir are included.
 func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
-	projectEnabled := claude.GetProjectEnabledPlugins(workingDir)
-	installedByID := buildInstalledByID(list.Installed, projectEnabled)
+	allScopes := claude.GetAllEnabledPlugins(workingDir)
+	installedByID := buildInstalledByID(list.Installed)
 	seenInstalled := make(map[string]bool)
 	byMarketplace := make(map[string][]PluginState)
 
 	// Process available plugins
 	for _, p := range list.Available {
-		state := processAvailablePlugin(p, installedByID, seenInstalled)
+		state := processAvailablePlugin(p, installedByID, allScopes, seenInstalled)
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
 	// Process installed plugins not in available list
 	for _, p := range list.Installed {
-		state, ok := processInstalledPlugin(p, projectEnabled, seenInstalled)
+		state, ok := processInstalledPlugin(p, allScopes, seenInstalled)
 		if ok {
 			byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 		}
@@ -337,22 +421,16 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 }
 
 // buildInstalledByID creates a map of installed plugins by ID.
-// Only includes user-scoped plugins and those in project settings.
-func buildInstalledByID(installed []claude.InstalledPlugin, projectEnabled map[string]claude.Scope) map[string]claude.InstalledPlugin {
+func buildInstalledByID(installed []claude.InstalledPlugin) map[string]claude.InstalledPlugin {
 	result := make(map[string]claude.InstalledPlugin)
 	for _, p := range installed {
-		if p.Scope == claude.ScopeUser {
-			result[p.ID] = p
-		} else if scope, ok := projectEnabled[p.ID]; ok {
-			p.Scope = scope
-			result[p.ID] = p
-		}
+		result[p.ID] = p
 	}
 	return result
 }
 
 // processAvailablePlugin processes an available plugin and merges with installed data.
-func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]claude.InstalledPlugin, seenInstalled map[string]bool) PluginState {
+func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool) PluginState {
 	state := PluginStateFromAvailable(p)
 	state.AvailableVersion = p.Version
 
@@ -361,12 +439,16 @@ func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]c
 		seenInstalled[p.PluginID] = true
 	}
 
+	// Apply scope data from settings files
+	if scopes, ok := allScopes[p.PluginID]; ok {
+		state.InstalledScopes = scopes
+	}
+
 	return state
 }
 
 // mergeInstalledInfo merges installed plugin info into a PluginState.
 func mergeInstalledInfo(state *PluginState, installed claude.InstalledPlugin, availableVersion string) {
-	state.InstalledScope = installed.Scope
 	state.Enabled = installed.Enabled
 	state.Version = installed.Version
 	state.InstallPath = installed.InstallPath
@@ -388,20 +470,27 @@ func mergeInstalledInfo(state *PluginState, installed claude.InstalledPlugin, av
 
 // processInstalledPlugin processes an installed plugin not in the available list.
 // Returns the state and true if it should be included, false otherwise.
-func processInstalledPlugin(p claude.InstalledPlugin, projectEnabled map[string]claude.Scope, seenInstalled map[string]bool) (PluginState, bool) {
-	// Check relevance
-	isRelevant := p.Scope == claude.ScopeUser
-	if scope, ok := projectEnabled[p.ID]; ok {
-		isRelevant = true
-		p.Scope = scope
-	}
+func processInstalledPlugin(p claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool) (PluginState, bool) {
+	// Include if plugin appears in any settings file OR is user-scoped in CLI output
+	_, inSettings := allScopes[p.ID]
+	isRelevant := p.Scope == claude.ScopeUser || inSettings
 
 	if !isRelevant || seenInstalled[p.ID] {
 		return PluginState{}, false
 	}
 
 	seenInstalled[p.ID] = true
-	return PluginStateFromInstalled(p), true
+	state := PluginStateFromInstalled(p)
+
+	// Apply scope data from settings files
+	if scopes, ok := allScopes[p.ID]; ok {
+		state.InstalledScopes = scopes
+	} else if p.Scope == claude.ScopeUser {
+		// User-scoped plugin not in settings — CLI is authority
+		state.InstalledScopes = map[claude.Scope]bool{claude.ScopeUser: true}
+	}
+
+	return state, true
 }
 
 // sortAndGroupByMarketplace sorts and groups plugins by marketplace with headers.
@@ -440,7 +529,7 @@ func (m *Model) toggleEnablement() {
 	}
 
 	// Can only enable/disable installed plugins
-	if plugin.InstalledScope == claude.ScopeNone {
+	if !plugin.IsInstalled() {
 		return
 	}
 
@@ -450,6 +539,12 @@ func (m *Model) toggleEnablement() {
 			// Don't allow enable/disable when install/uninstall is pending
 			return
 		}
+	}
+
+	// Multi-scope: open scope dialog to choose which scope to toggle
+	if !plugin.IsSingleScope() {
+		m.openScopeDialog(plugin.ID, plugin.InstalledScopes, nil)
+		return
 	}
 
 	// Determine operation type based on current enabled state
@@ -471,8 +566,34 @@ func (m *Model) toggleEnablement() {
 	// Create enable/disable operation
 	m.main.pendingOps[plugin.ID] = Operation{
 		PluginID: plugin.ID,
-		Scope:    plugin.InstalledScope, // Use current installed scope
+		Scopes:   []claude.Scope{plugin.SingleScope()},
 		Type:     opType,
+	}
+}
+
+// openScopeDialog transitions to the scope dialog for the given plugin.
+// preToggle optionally toggles one scope before showing the dialog.
+func (m *Model) openScopeDialog(pluginID string, installedScopes map[claude.Scope]bool, preToggle *claude.Scope) {
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       pluginID,
+		originalScopes: copyMap(installedScopes),
+	}
+	// Initialize checkboxes from current installed scopes (presence, not enabled value)
+	_, m.main.scopeDialog.scopes[0] = installedScopes[claude.ScopeUser]
+	_, m.main.scopeDialog.scopes[1] = installedScopes[claude.ScopeProject]
+	_, m.main.scopeDialog.scopes[2] = installedScopes[claude.ScopeLocal]
+
+	// Pre-toggle a scope if requested (e.g., pressing 'l' on multi-scope pre-checks local)
+	if preToggle != nil {
+		switch *preToggle {
+		case claude.ScopeUser:
+			m.main.scopeDialog.scopes[0] = !m.main.scopeDialog.scopes[0]
+		case claude.ScopeProject:
+			m.main.scopeDialog.scopes[1] = !m.main.scopeDialog.scopes[1]
+		case claude.ScopeLocal:
+			m.main.scopeDialog.scopes[2] = !m.main.scopeDialog.scopes[2]
+		}
 	}
 }
 
@@ -505,6 +626,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle confirmation dialog
 	if m.main.showConfirm {
 		return m.updateConfirmation(msg)
+	}
+
+	// Handle scope dialog mode
+	if m.mode == ModeScopeDialog {
+		return m.updateScopeDialog(msg)
 	}
 
 	// Handle mode-specific updates
@@ -540,6 +666,10 @@ func (m *Model) View() string {
 
 	if m.main.showConfirm {
 		return m.renderConfirmation(m.styles)
+	}
+
+	if m.mode == ModeScopeDialog {
+		return m.renderScopeDialog(m.styles)
 	}
 
 	switch m.mode {

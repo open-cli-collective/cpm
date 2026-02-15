@@ -162,31 +162,50 @@ func ReadProjectSettings(settingsPath string) (*ProjectSettings, error) {
 	return &settings, nil
 }
 
-// GetProjectEnabledPlugins returns the set of plugin IDs enabled for the given working directory.
-// It reads both .claude/settings.json (project scope) and .claude/settings.local.json (local scope)
-// and returns a map of plugin ID to scope.
-func GetProjectEnabledPlugins(workingDir string) map[string]Scope {
-	result := make(map[string]Scope)
+// ScopeState tracks the enabled state of a plugin at a specific scope.
+// The outer map key is the plugin ID, the inner map key is the scope,
+// and the bool value is true=enabled, false=disabled-but-present.
+type ScopeState map[string]map[Scope]bool
 
-	// Read project-scoped settings
-	projectSettingsPath := filepath.Join(workingDir, ".claude", "settings.json")
-	if settings, err := ReadProjectSettings(projectSettingsPath); err == nil {
+// GetAllEnabledPlugins reads all three settings files (user, project, local)
+// and returns a map of plugin ID to scope set with enabled state.
+// Missing settings files are silently ignored.
+func GetAllEnabledPlugins(workingDir string) ScopeState {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "" // Will fail to read user settings, which is handled gracefully
+	}
+	return getAllEnabledPlugins(workingDir, homeDir)
+}
+
+// getAllEnabledPlugins is the internal implementation with injectable homeDir for testing.
+func getAllEnabledPlugins(workingDir, homeDir string) ScopeState {
+	result := make(ScopeState)
+
+	// Helper to accumulate plugins from a single settings file
+	addFromFile := func(settingsPath string, scope Scope) {
+		settings, err := ReadProjectSettings(settingsPath)
+		if err != nil {
+			return // Missing or unreadable file — skip silently
+		}
 		for pluginID, enabled := range settings.EnabledPlugins {
-			if enabled {
-				result[pluginID] = ScopeProject
+			if result[pluginID] == nil {
+				result[pluginID] = make(map[Scope]bool)
 			}
+			result[pluginID][scope] = enabled
 		}
 	}
 
-	// Read local-scoped settings (overrides project if present)
-	localSettingsPath := filepath.Join(workingDir, ".claude", "settings.local.json")
-	if settings, err := ReadProjectSettings(localSettingsPath); err == nil {
-		for pluginID, enabled := range settings.EnabledPlugins {
-			if enabled {
-				result[pluginID] = ScopeLocal
-			}
-		}
+	// User scope: {homeDir}/.claude/settings.json
+	if homeDir != "" {
+		addFromFile(filepath.Join(homeDir, ".claude", "settings.json"), ScopeUser)
 	}
+
+	// Project scope: {workingDir}/.claude/settings.json
+	addFromFile(filepath.Join(workingDir, ".claude", "settings.json"), ScopeProject)
+
+	// Local scope: {workingDir}/.claude/settings.local.json
+	addFromFile(filepath.Join(workingDir, ".claude", "settings.local.json"), ScopeLocal)
 
 	return result
 }

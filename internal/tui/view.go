@@ -11,6 +11,26 @@ import (
 	"github.com/open-cli-collective/cpm/internal/claude"
 )
 
+// scopeOrder defines the canonical display order for scopes.
+var scopeOrder = []claude.Scope{claude.ScopeUser, claude.ScopeProject, claude.ScopeLocal}
+
+// scopeLabel returns the uppercase label for a scope.
+func scopeLabel(s claude.Scope) string {
+	return strings.ToUpper(string(s))
+}
+
+// formatScopeSet renders multiple scopes as a comma-separated string in canonical order.
+// Example: "USER, LOCAL" for a plugin installed at user and local scopes.
+func formatScopeSet(scopes map[claude.Scope]bool) string {
+	var labels []string
+	for _, s := range scopeOrder {
+		if _, ok := scopes[s]; ok {
+			labels = append(labels, scopeLabel(s))
+		}
+	}
+	return strings.Join(labels, ", ")
+}
+
 // renderMainView renders the main two-pane view.
 func (m *Model) renderMainView() string {
 	if m.width == 0 || m.height == 0 {
@@ -126,41 +146,40 @@ func (m *Model) renderListItem(plugin PluginState, selected bool, styles Styles)
 func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	// Check for pending changes first
 	if op, ok := m.main.pendingOps[plugin.ID]; ok {
-		return renderPendingIndicator(op, styles)
+		return renderPendingIndicator(op, plugin, styles)
 	}
 
-	// Show current scope
-	var scopeText string
-	switch plugin.InstalledScope {
-	case claude.ScopeLocal:
-		scopeText = "LOCAL"
-	case claude.ScopeProject:
-		scopeText = "PROJECT"
-	case claude.ScopeUser:
-		scopeText = "USER"
-	default:
+	if !plugin.IsInstalled() {
 		return ""
 	}
+
+	scopeText := formatScopeSet(plugin.InstalledScopes)
 
 	// Append disabled status if applicable
 	if !plugin.Enabled {
-		scopeText += ", DISABLED"
+		scopeText += " (disabled)"
 	}
 
-	// Apply style based on scope
-	var result string
-	switch plugin.InstalledScope {
-	case claude.ScopeLocal:
-		result = styles.ScopeLocal.Render("[" + scopeText + "]")
-	case claude.ScopeProject:
-		result = styles.ScopeProject.Render("[" + scopeText + "]")
-	case claude.ScopeUser:
-		result = styles.ScopeUser.Render("[" + scopeText + "]")
-	default:
-		return ""
+	// For single-scope, style by scope type; for multi-scope, use first scope's style
+	var style lipgloss.Style
+	if plugin.IsSingleScope() {
+		switch plugin.SingleScope() {
+		case claude.ScopeLocal:
+			style = styles.ScopeLocal
+		case claude.ScopeProject:
+			style = styles.ScopeProject
+		case claude.ScopeUser:
+			style = styles.ScopeUser
+		default:
+			return ""
+		}
+	} else {
+		// Multi-scope: use project style as neutral choice
+		style = styles.ScopeProject
 	}
 
-	// Append update indicator if available
+	result := style.Render("[" + scopeText + "]")
+
 	if plugin.HasUpdate {
 		result += styles.Pending.Render(" ↑")
 	}
@@ -168,21 +187,48 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 	return result
 }
 
+// applyScopeDelta returns a new scope set with uninstalls removed and installs added.
+func applyScopeDelta(base map[claude.Scope]bool, uninstall, install []claude.Scope) map[claude.Scope]bool {
+	result := copyMap(base)
+	for _, s := range uninstall {
+		delete(result, s)
+	}
+	for _, s := range install {
+		result[s] = true
+	}
+	return result
+}
+
 // renderPendingIndicator renders the pending operation indicator for a plugin.
-func renderPendingIndicator(op Operation, styles Styles) string {
+func renderPendingIndicator(op Operation, plugin PluginState, styles Styles) string {
+	pending := func(s string) string { return styles.Pending.Render(s) }
+
 	switch op.Type {
 	case OpInstall:
-		return styles.Pending.Render("[→ " + strings.ToUpper(string(op.Scope)) + "]")
+		if plugin.IsInstalled() {
+			newScopes := applyScopeDelta(plugin.InstalledScopes, nil, op.Scopes)
+			return pending("[-> " + formatScopeSet(newScopes) + "]")
+		}
+		return pending("[-> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUninstall:
-		return styles.Pending.Render("[→ UNINSTALL]")
+		if len(op.OriginalScopes) > 1 || (plugin.IsInstalled() && !plugin.IsSingleScope()) {
+			remaining := applyScopeDelta(plugin.InstalledScopes, op.Scopes, nil)
+			if len(remaining) > 0 {
+				return pending("[" + formatScopeSet(plugin.InstalledScopes) + " -> " + formatScopeSet(remaining) + "]")
+			}
+		}
+		return pending("[-> UNINSTALL]")
 	case OpMigrate:
-		return styles.Pending.Render("[" + strings.ToUpper(string(op.OriginalScope)) + " → " + strings.ToUpper(string(op.Scope)) + "]")
+		return pending("[" + scopeLabel(firstScope(op.OriginalScopes)) + " -> " + scopeLabel(op.Scopes[0]) + "]")
 	case OpUpdate:
-		return styles.Pending.Render("[→ UPDATE]")
+		return pending("[-> UPDATE]")
 	case OpEnable:
-		return styles.Pending.Render("[→ ENABLED]")
+		return pending("[-> ENABLED]")
 	case OpDisable:
-		return styles.Pending.Render("[→ DISABLED]")
+		return pending("[-> DISABLED]")
+	case OpScopeChange:
+		newScopes := applyScopeDelta(plugin.InstalledScopes, op.UninstallScopes, op.Scopes)
+		return pending("[" + formatScopeSet(plugin.InstalledScopes) + " -> " + formatScopeSet(newScopes) + "]")
 	default:
 		return ""
 	}
@@ -281,16 +327,25 @@ func (m *Model) renderPluginInfo(plugin PluginState, styles Styles) []string {
 
 // getStatusText returns the status text for a plugin.
 func (m *Model) getStatusText(plugin PluginState) string {
-	if plugin.InstalledScope == claude.ScopeNone {
+	if !plugin.IsInstalled() {
 		return "Not installed"
 	}
-	status := "Installed (" + string(plugin.InstalledScope) + ")"
+	status := "Installed (" + formatScopeSet(plugin.InstalledScopes) + ")"
 	if plugin.Enabled {
 		status += " - Enabled"
 	} else {
 		status += " - Disabled"
 	}
 	return status
+}
+
+// joinScopes returns a comma-separated string of scope names.
+func joinScopes(scopes []claude.Scope) string {
+	parts := make([]string, len(scopes))
+	for i, s := range scopes {
+		parts[i] = string(s)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // appendPendingChange appends pending change information if applicable.
@@ -303,19 +358,15 @@ func (m *Model) appendPendingChange(lines []string, plugin PluginState, styles S
 	var pendingStr string
 	switch op.Type {
 	case OpInstall:
-		pendingStr = "Will be installed to " + string(op.Scope)
+		pendingStr = op.Type.meta().Pending + " " + joinScopes(op.Scopes)
 	case OpUninstall:
-		pendingStr = "Will be uninstalled"
+		pendingStr = m.formatUninstallPending(op, plugin)
 	case OpMigrate:
-		pendingStr = "Will be moved from " + string(op.OriginalScope) + " to " + string(op.Scope)
-	case OpUpdate:
-		pendingStr = "Will be updated"
-	case OpEnable:
-		pendingStr = "Will be enabled"
-	case OpDisable:
-		pendingStr = "Will be disabled"
+		pendingStr = op.Type.meta().Pending + " " + string(firstScope(op.OriginalScopes)) + " to " + string(op.Scopes[0])
+	case OpScopeChange:
+		pendingStr = "Will add " + joinScopes(op.Scopes) + " and remove " + joinScopes(op.UninstallScopes)
 	default:
-		pendingStr = "Unknown operation"
+		pendingStr = op.Type.meta().Pending
 	}
 
 	return append(lines, styles.Pending.Render("Pending: "+pendingStr))
@@ -349,6 +400,17 @@ func (m *Model) appendComponents(lines []string, plugin PluginState, styles Styl
 	return lines
 }
 
+// formatUninstallPending returns the pending string for an uninstall operation.
+func (m *Model) formatUninstallPending(op Operation, plugin PluginState) string {
+	if len(op.Scopes) > 0 && plugin.IsInstalled() && !plugin.IsSingleScope() {
+		remaining := applyScopeDelta(plugin.InstalledScopes, op.Scopes, nil)
+		if len(remaining) > 0 {
+			return "Will be uninstalled from " + joinScopes(op.Scopes) + " (keeping " + formatScopeSet(remaining) + ")"
+		}
+	}
+	return "Will be uninstalled"
+}
+
 // appendComponentCategory appends a category of components if non-empty.
 func appendComponentCategory(lines []string, category string, items []string, styles Styles) []string {
 	if len(items) == 0 {
@@ -363,7 +425,7 @@ func appendComponentCategory(lines []string, category string, items []string, st
 
 // appendExternalNotice appends the external plugin notice if applicable.
 func (m *Model) appendExternalNotice(lines []string, plugin PluginState, styles Styles) []string {
-	if !plugin.IsExternal || plugin.InstalledScope != claude.ScopeNone {
+	if !plugin.IsExternal || plugin.IsInstalled() {
 		return lines
 	}
 	lines = append(lines, "")
@@ -502,22 +564,15 @@ func (m *Model) renderConfirmation(styles Styles) string {
 
 // formatOperationLine formats a single operation for display in the confirmation modal.
 func formatOperationLine(op Operation, styles Styles) string {
-	switch op.Type {
-	case OpInstall:
-		return styles.ScopeProject.Render("Install ("+string(op.Scope)+"): ") + op.PluginID
-	case OpUninstall:
-		return styles.Pending.Render("Uninstall: ") + op.PluginID
-	case OpMigrate:
-		return styles.ScopeProject.Render("Move ("+string(op.OriginalScope)+" → "+string(op.Scope)+"): ") + op.PluginID
-	case OpUpdate:
-		return styles.ScopeProject.Render("Update: ") + op.PluginID
-	case OpEnable:
-		return styles.ScopeProject.Render("Enable: ") + op.PluginID
-	case OpDisable:
-		return styles.Pending.Render("Disable: ") + op.PluginID
-	default:
-		return ""
+	verb, scopeDetail := formatOperationAction(op)
+
+	// Destructive operations use pending (warning) style
+	style := styles.ScopeProject
+	if op.Type == OpUninstall || op.Type == OpDisable {
+		style = styles.Pending
 	}
+
+	return style.Render(verb+scopeDetail+": ") + op.PluginID
 }
 
 // buildOperationSummary builds a summary string counting operations by type.
@@ -527,26 +582,30 @@ func buildOperationSummary(operations []Operation) string {
 		counts[op.Type]++
 	}
 
-	type labeledCount struct {
-		label  string
-		opType OperationType
-	}
-	order := []labeledCount{
-		{"install(s)", OpInstall},
-		{"uninstall(s)", OpUninstall},
-		{"migration(s)", OpMigrate},
-		{"update(s)", OpUpdate},
-		{"enable(s)", OpEnable},
-		{"disable(s)", OpDisable},
-	}
+	order := []OperationType{OpInstall, OpUninstall, OpMigrate, OpUpdate, OpEnable, OpDisable, OpScopeChange}
 
 	var parts []string
-	for _, lc := range order {
-		if c := counts[lc.opType]; c > 0 {
-			parts = append(parts, strconv.Itoa(c)+" "+lc.label)
+	for _, opType := range order {
+		if c := counts[opType]; c > 0 {
+			parts = append(parts, strconv.Itoa(c)+" "+opType.meta().Noun)
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// formatOperationAction returns the action label and scope detail for a progress line.
+func formatOperationAction(op Operation) (string, string) {
+	verb := op.Type.meta().Verb
+	switch op.Type {
+	case OpInstall:
+		return verb, " (" + joinScopes(op.Scopes) + ")"
+	case OpMigrate:
+		return verb, " (" + string(firstScope(op.OriginalScopes)) + " -> " + string(op.Scopes[0]) + ")"
+	case OpScopeChange:
+		return verb, " (+" + joinScopes(op.Scopes) + " -" + joinScopes(op.UninstallScopes) + ")"
+	default:
+		return verb, ""
+	}
 }
 
 // renderProgress renders the progress modal.
@@ -559,47 +618,18 @@ func (m *Model) renderProgress(styles Styles) string {
 		var status string
 		switch {
 		case i < m.progress.currentIdx:
-			// Completed
 			if i < len(m.progress.errors) && m.progress.errors[i] != "" {
 				status = "✗ Failed: " + m.progress.errors[i]
 			} else {
 				status = "✓ Done"
 			}
 		case i == m.progress.currentIdx:
-			// In progress
 			status = "⟳ Running..."
 		default:
-			// Pending
 			status = "○ Pending"
 		}
 
-		var action string
-		var scopeStr string
-
-		switch op.Type {
-		case OpInstall:
-			action = "Install"
-			scopeStr = " (" + string(op.Scope) + ")"
-		case OpUninstall:
-			action = "Uninstall"
-			scopeStr = ""
-		case OpMigrate:
-			action = "Move"
-			scopeStr = " (" + string(op.OriginalScope) + " → " + string(op.Scope) + ")"
-		case OpUpdate:
-			action = "Update"
-			scopeStr = ""
-		case OpEnable:
-			action = "Enable"
-			scopeStr = ""
-		case OpDisable:
-			action = "Disable"
-			scopeStr = ""
-		default:
-			action = "Unknown"
-			scopeStr = ""
-		}
-
+		action, scopeStr := formatOperationAction(op)
 		line := status + " " + action + scopeStr + ": " + op.PluginID
 		lines = append(lines, "  "+line)
 	}
@@ -745,6 +775,64 @@ func (m *Model) renderQuitConfirmation(styles Styles) string {
 		Render(content)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+// scopeDialogLabels shows the scope name and settings file path.
+var scopeDialogLabels = [3]struct {
+	name string
+	path string
+}{
+	{"User", "~/.claude/settings.json"},
+	{"Project", ".claude/settings.json"},
+	{"Local", ".claude/settings.local.json"},
+}
+
+// renderScopeDialog renders the scope selection dialog as a centered overlay.
+func (m *Model) renderScopeDialog(styles Styles) string {
+	dialog := &m.main.scopeDialog
+
+	var lines []string
+	lines = append(lines, styles.Header.Render(" Scopes for "+dialog.pluginID+" "))
+	lines = append(lines, "")
+
+	for i := 0; i < 3; i++ {
+		checkbox := "[ ]"
+		if dialog.scopes[i] {
+			checkbox = "[x]"
+		}
+
+		cursor := "  "
+		if dialog.cursor == i {
+			cursor = "> "
+		}
+
+		label := scopeDialogLabels[i]
+		line := cursor + checkbox + " " + label.name
+		// Pad to align paths
+		for len(line) < 25 {
+			line += " "
+		}
+		line += "(" + label.path + ")"
+
+		if dialog.cursor == i {
+			lines = append(lines, styles.Selected.Render(line))
+		} else {
+			lines = append(lines, "  "+line)
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, "  Press space to toggle, Enter to confirm, Esc to cancel")
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.Palette.Project).
+			Padding(1, 2).
+			Render(strings.Join(lines, "\n")),
+	)
 }
 
 // renderConfig renders the config viewer.
