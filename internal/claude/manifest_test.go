@@ -5,7 +5,210 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
+
+func TestReadPluginManifestFS(t *testing.T) {
+	t.Run("string author", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".claude-plugin/plugin.json": &fstest.MapFile{
+				Data: []byte(`{"name":"test-plugin","description":"A test","version":"1.0.0","author":"Alice"}`),
+			},
+		}
+
+		manifest, err := ReadPluginManifestFS(fsys)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if manifest.Name != "test-plugin" {
+			t.Errorf("Name = %q, want %q", manifest.Name, "test-plugin")
+		}
+		if manifest.Description != "A test" {
+			t.Errorf("Description = %q, want %q", manifest.Description, "A test")
+		}
+		if manifest.Version != "1.0.0" {
+			t.Errorf("Version = %q, want %q", manifest.Version, "1.0.0")
+		}
+		if manifest.AuthorName != "Alice" {
+			t.Errorf("AuthorName = %q, want %q", manifest.AuthorName, "Alice")
+		}
+	})
+
+	t.Run("object author", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".claude-plugin/plugin.json": &fstest.MapFile{
+				Data: []byte(`{"name":"test","description":"desc","author":{"name":"Bob","email":"bob@example.com"}}`),
+			},
+		}
+
+		manifest, err := ReadPluginManifestFS(fsys)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if manifest.AuthorName != "Bob" {
+			t.Errorf("AuthorName = %q, want %q", manifest.AuthorName, "Bob")
+		}
+		if manifest.AuthorEmail != "bob@example.com" {
+			t.Errorf("AuthorEmail = %q, want %q", manifest.AuthorEmail, "bob@example.com")
+		}
+	})
+
+	t.Run("missing manifest", func(t *testing.T) {
+		fsys := fstest.MapFS{}
+
+		_, err := ReadPluginManifestFS(fsys)
+		if err == nil {
+			t.Error("expected error for missing manifest, got nil")
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".claude-plugin/plugin.json": &fstest.MapFile{
+				Data: []byte(`{invalid`),
+			},
+		}
+
+		_, err := ReadPluginManifestFS(fsys)
+		if err == nil {
+			t.Error("expected error for invalid JSON, got nil")
+		}
+	})
+}
+
+func TestScanPluginComponentsFS(t *testing.T) {
+	t.Run("all component types", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"skills/my-skill/SKILL.md":      &fstest.MapFile{},
+			"agents/helper.md":              &fstest.MapFile{},
+			"commands/run.md":               &fstest.MapFile{},
+			"hooks/pre-commit/hook.sh":      &fstest.MapFile{},
+			"hooks/post-build.md":           &fstest.MapFile{},
+			"mcp-servers/my-server/main.go": &fstest.MapFile{},
+		}
+
+		components := ScanPluginComponentsFS(fsys)
+		if len(components.Skills) != 1 || components.Skills[0] != "my-skill" {
+			t.Errorf("Skills = %v, want [my-skill]", components.Skills)
+		}
+		if len(components.Agents) != 1 || components.Agents[0] != "helper" {
+			t.Errorf("Agents = %v, want [helper]", components.Agents)
+		}
+		if len(components.Commands) != 1 || components.Commands[0] != "run" {
+			t.Errorf("Commands = %v, want [run]", components.Commands)
+		}
+		if len(components.Hooks) != 2 {
+			t.Errorf("Hooks length = %d, want 2", len(components.Hooks))
+		}
+		if len(components.MCPs) != 1 || components.MCPs[0] != "my-server" {
+			t.Errorf("MCPs = %v, want [my-server]", components.MCPs)
+		}
+	})
+
+	t.Run("mcp.json fallback", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".mcp.json": &fstest.MapFile{Data: []byte(`{}`)},
+		}
+
+		components := ScanPluginComponentsFS(fsys)
+		if len(components.MCPs) != 1 || components.MCPs[0] != "mcp-server" {
+			t.Errorf("MCPs = %v, want [mcp-server]", components.MCPs)
+		}
+	})
+
+	t.Run("empty plugin", func(t *testing.T) {
+		fsys := fstest.MapFS{}
+
+		components := ScanPluginComponentsFS(fsys)
+		if len(components.Skills) != 0 || len(components.Agents) != 0 ||
+			len(components.Commands) != 0 || len(components.Hooks) != 0 ||
+			len(components.MCPs) != 0 {
+			t.Errorf("expected empty components, got %+v", components)
+		}
+	})
+}
+
+func TestReadPluginConfigsFS(t *testing.T) {
+	t.Run("manifest only", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".claude-plugin/plugin.json": &fstest.MapFile{
+				Data: []byte(`{"name":"test"}`),
+			},
+		}
+
+		configs, err := ReadPluginConfigsFS(fsys)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(configs) != 1 {
+			t.Fatalf("len(configs) = %d, want 1", len(configs))
+		}
+		if configs[0].RelativePath != ".claude-plugin/plugin.json" {
+			t.Errorf("RelativePath = %q, want %q", configs[0].RelativePath, ".claude-plugin/plugin.json")
+		}
+	})
+
+	t.Run("multiple configs", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			".claude-plugin/plugin.json": &fstest.MapFile{
+				Data: []byte(`{"name":"test"}`),
+			},
+			"hooks/hooks.json": &fstest.MapFile{
+				Data: []byte(`{"hooks":[]}`),
+			},
+			".mcp.json": &fstest.MapFile{
+				Data: []byte(`{"server":"test"}`),
+			},
+		}
+
+		configs, err := ReadPluginConfigsFS(fsys)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(configs) != 3 {
+			t.Errorf("len(configs) = %d, want 3", len(configs))
+		}
+	})
+
+	t.Run("no configs", func(t *testing.T) {
+		fsys := fstest.MapFS{}
+
+		_, err := ReadPluginConfigsFS(fsys)
+		if err == nil {
+			t.Error("expected error for no configs, got nil")
+		}
+	})
+}
+
+func TestReadSettingsFromFS(t *testing.T) {
+	t.Run("valid settings", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"settings.json": &fstest.MapFile{
+				Data: []byte(`{"enabledPlugins":{"plugin-a@mp":true,"plugin-b@mp":false}}`),
+			},
+		}
+
+		settings, err := readSettingsFromFS(fsys, "settings.json")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !settings.EnabledPlugins["plugin-a@mp"] {
+			t.Error("plugin-a@mp should be enabled")
+		}
+		if settings.EnabledPlugins["plugin-b@mp"] {
+			t.Error("plugin-b@mp should be disabled")
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		fsys := fstest.MapFS{}
+
+		_, err := readSettingsFromFS(fsys, "settings.json")
+		if err == nil {
+			t.Error("expected error for missing file, got nil")
+		}
+	})
+}
 
 // TestGetAllEnabledPluginsUserScope verifies AC2.1: user-scoped plugins
 func TestGetAllEnabledPluginsUserScope(t *testing.T) {

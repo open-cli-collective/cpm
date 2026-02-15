@@ -12,6 +12,7 @@ import (
 // OperationType represents the type of operation to perform.
 type OperationType int
 
+// Operation types for plugin management.
 const (
 	OpInstall OperationType = iota
 	OpUninstall
@@ -72,6 +73,7 @@ const (
 // DocType represents the type of document being viewed.
 type DocType int
 
+// Document types for the doc viewer.
 const (
 	DocReadme DocType = iota
 	DocChangelog
