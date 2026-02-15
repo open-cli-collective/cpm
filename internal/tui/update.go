@@ -2,8 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -1165,12 +1165,18 @@ func (m *Model) openDoc(docType DocType) {
 		docTitle = "CHANGELOG: " + plugin.Name
 	}
 
+	// Open the plugin directory as a root for safe file access
+	root, err := os.OpenRoot(plugin.InstallPath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = root.Close() }()
+
 	// Try to find and read the document
 	var content []byte
-	var err error
+	rootFS := root.FS()
 	for _, filename := range filenames {
-		docPath := filepath.Join(plugin.InstallPath, filename)
-		content, err = os.ReadFile(docPath)
+		content, err = fs.ReadFile(rootFS, filename)
 		if err == nil {
 			break
 		}

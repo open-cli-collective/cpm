@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +42,18 @@ type PluginComponents struct {
 
 // ReadPluginManifest reads the plugin.json manifest from the given install path.
 func ReadPluginManifest(installPath string) (*PluginManifest, error) {
-	manifestPath := filepath.Join(installPath, ".claude-plugin", "plugin.json")
-	data, err := os.ReadFile(manifestPath)
+	root, err := os.OpenRoot(installPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return ReadPluginManifestFS(root.FS())
+}
+
+// ReadPluginManifestFS reads the plugin.json manifest from the given filesystem.
+func ReadPluginManifestFS(fsys fs.FS) (*PluginManifest, error) {
+	data, err := fs.ReadFile(fsys, filepath.Join(".claude-plugin", "plugin.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -80,28 +91,38 @@ func ReadPluginManifest(installPath string) (*PluginManifest, error) {
 
 // ScanPluginComponents scans the plugin directory for skills, agents, commands, hooks, and MCPs.
 func ScanPluginComponents(installPath string) *PluginComponents {
+	root, err := os.OpenRoot(installPath)
+	if err != nil {
+		return &PluginComponents{}
+	}
+	defer func() { _ = root.Close() }()
+
+	return ScanPluginComponentsFS(root.FS())
+}
+
+// ScanPluginComponentsFS scans the filesystem for skills, agents, commands, hooks, and MCPs.
+func ScanPluginComponentsFS(fsys fs.FS) *PluginComponents {
 	components := &PluginComponents{}
 
 	// Scan skills/ directory (subdirectories are skill names)
-	components.Skills = listSubdirectories(filepath.Join(installPath, "skills"))
+	components.Skills = listSubdirectoriesFS(fsys, "skills")
 
 	// Scan agents/ directory (.md files are agent definitions)
-	components.Agents = listMarkdownFiles(filepath.Join(installPath, "agents"))
+	components.Agents = listMarkdownFilesFS(fsys, "agents")
 
 	// Scan commands/ directory (.md files are command definitions)
-	components.Commands = listMarkdownFiles(filepath.Join(installPath, "commands"))
+	components.Commands = listMarkdownFilesFS(fsys, "commands")
 
 	// Scan hooks/ directory (can be subdirectories or .md files)
-	hooks := listSubdirectories(filepath.Join(installPath, "hooks"))
-	hooks = append(hooks, listMarkdownFiles(filepath.Join(installPath, "hooks"))...)
+	hooks := listSubdirectoriesFS(fsys, "hooks")
+	hooks = append(hooks, listMarkdownFilesFS(fsys, "hooks")...)
 	components.Hooks = hooks
 
 	// Scan mcp-servers/ directory (subdirectories are MCP server names)
-	components.MCPs = listSubdirectories(filepath.Join(installPath, "mcp-servers"))
+	components.MCPs = listSubdirectoriesFS(fsys, "mcp-servers")
 
 	// Also check for .mcp.json at root (indicates MCP-only plugin)
-	mcpJSONPath := filepath.Join(installPath, ".mcp.json")
-	if _, err := os.Stat(mcpJSONPath); err == nil && len(components.MCPs) == 0 {
+	if _, err := fs.Stat(fsys, ".mcp.json"); err == nil && len(components.MCPs) == 0 {
 		// Plugin has an MCP server defined at root level
 		components.MCPs = append(components.MCPs, "mcp-server")
 	}
@@ -109,9 +130,9 @@ func ScanPluginComponents(installPath string) *PluginComponents {
 	return components
 }
 
-// listSubdirectories returns names of immediate subdirectories.
-func listSubdirectories(dir string) []string {
-	entries, err := os.ReadDir(dir)
+// listSubdirectoriesFS returns names of immediate subdirectories within an fs.FS.
+func listSubdirectoriesFS(fsys fs.FS, dir string) []string {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil
 	}
@@ -125,9 +146,9 @@ func listSubdirectories(dir string) []string {
 	return result
 }
 
-// listMarkdownFiles returns names of .md files (without extension).
-func listMarkdownFiles(dir string) []string {
-	entries, err := os.ReadDir(dir)
+// listMarkdownFilesFS returns names of .md files (without extension) within an fs.FS.
+func listMarkdownFilesFS(fsys fs.FS, dir string) []string {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil
 	}
@@ -149,7 +170,21 @@ type ProjectSettings struct {
 
 // ReadProjectSettings reads the settings file at the given path.
 func ReadProjectSettings(settingsPath string) (*ProjectSettings, error) {
-	data, err := os.ReadFile(settingsPath)
+	dir := filepath.Dir(settingsPath)
+	file := filepath.Base(settingsPath)
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return readSettingsFromFS(root.FS(), file)
+}
+
+// readSettingsFromFS reads a settings file from the given filesystem.
+func readSettingsFromFS(fsys fs.FS, name string) (*ProjectSettings, error) {
+	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
@@ -182,30 +217,51 @@ func GetAllEnabledPlugins(workingDir string) ScopeState {
 func getAllEnabledPlugins(workingDir, homeDir string) ScopeState {
 	result := make(ScopeState)
 
-	// Helper to accumulate plugins from a single settings file
-	addFromFile := func(settingsPath string, scope Scope) {
-		settings, err := ReadProjectSettings(settingsPath)
+	// Helper to accumulate plugins from a .claude directory root
+	addFromRoot := func(claudeDir string, entries []struct {
+		file  string
+		scope Scope
+	},
+	) {
+		root, err := os.OpenRoot(claudeDir)
 		if err != nil {
-			return // Missing or unreadable file — skip silently
+			return // Directory doesn't exist — skip silently
 		}
-		for pluginID, enabled := range settings.EnabledPlugins {
-			if result[pluginID] == nil {
-				result[pluginID] = make(map[Scope]bool)
+		defer func() { _ = root.Close() }()
+
+		rootFS := root.FS()
+		for _, e := range entries {
+			settings, err := readSettingsFromFS(rootFS, e.file)
+			if err != nil {
+				continue // Missing or unreadable file — skip silently
 			}
-			result[pluginID][scope] = enabled
+			for pluginID, enabled := range settings.EnabledPlugins {
+				if result[pluginID] == nil {
+					result[pluginID] = make(map[Scope]bool)
+				}
+				result[pluginID][e.scope] = enabled
+			}
 		}
 	}
 
 	// User scope: {homeDir}/.claude/settings.json
 	if homeDir != "" {
-		addFromFile(filepath.Join(homeDir, ".claude", "settings.json"), ScopeUser)
+		addFromRoot(filepath.Join(homeDir, ".claude"), []struct {
+			file  string
+			scope Scope
+		}{
+			{"settings.json", ScopeUser},
+		})
 	}
 
-	// Project scope: {workingDir}/.claude/settings.json
-	addFromFile(filepath.Join(workingDir, ".claude", "settings.json"), ScopeProject)
-
-	// Local scope: {workingDir}/.claude/settings.local.json
-	addFromFile(filepath.Join(workingDir, ".claude", "settings.local.json"), ScopeLocal)
+	// Project + local scope: {workingDir}/.claude/settings.json and settings.local.json
+	addFromRoot(filepath.Join(workingDir, ".claude"), []struct {
+		file  string
+		scope Scope
+	}{
+		{"settings.json", ScopeProject},
+		{"settings.local.json", ScopeLocal},
+	})
 
 	return result
 }
@@ -219,11 +275,21 @@ type ConfigFile struct {
 // ReadPluginConfigs reads all JSON configuration files from a plugin directory.
 // Returns the manifest and any other config files found.
 func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
+	root, err := os.OpenRoot(installPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return ReadPluginConfigsFS(root.FS())
+}
+
+// ReadPluginConfigsFS reads all JSON configuration files from the given filesystem.
+func ReadPluginConfigsFS(fsys fs.FS) ([]ConfigFile, error) {
 	var configs []ConfigFile
 
 	// Always include the manifest first if it exists
-	manifestPath := filepath.Join(installPath, ".claude-plugin", "plugin.json")
-	if content, err := readAndFormatJSON(manifestPath); err == nil {
+	if content, err := readAndFormatJSONFS(fsys, filepath.Join(".claude-plugin", "plugin.json")); err == nil {
 		configs = append(configs, ConfigFile{
 			RelativePath: ".claude-plugin/plugin.json",
 			Content:      content,
@@ -231,8 +297,7 @@ func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
 	}
 
 	// Check for hooks.json
-	hooksPath := filepath.Join(installPath, "hooks", "hooks.json")
-	if content, err := readAndFormatJSON(hooksPath); err == nil {
+	if content, err := readAndFormatJSONFS(fsys, filepath.Join("hooks", "hooks.json")); err == nil {
 		configs = append(configs, ConfigFile{
 			RelativePath: "hooks/hooks.json",
 			Content:      content,
@@ -240,8 +305,7 @@ func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
 	}
 
 	// Check for .mcp.json (MCP server config)
-	mcpPath := filepath.Join(installPath, ".mcp.json")
-	if content, err := readAndFormatJSON(mcpPath); err == nil {
+	if content, err := readAndFormatJSONFS(fsys, ".mcp.json"); err == nil {
 		configs = append(configs, ConfigFile{
 			RelativePath: ".mcp.json",
 			Content:      content,
@@ -249,14 +313,13 @@ func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
 	}
 
 	// Scan mcp-servers/ for config files
-	mcpServersDir := filepath.Join(installPath, "mcp-servers")
-	if entries, err := os.ReadDir(mcpServersDir); err == nil {
+	if entries, err := fs.ReadDir(fsys, "mcp-servers"); err == nil {
 		for _, entry := range entries {
 			if entry.IsDir() {
-				configPath := filepath.Join(mcpServersDir, entry.Name(), "config.json")
-				if content, err := readAndFormatJSON(configPath); err == nil {
+				relPath := filepath.Join("mcp-servers", entry.Name(), "config.json")
+				if content, err := readAndFormatJSONFS(fsys, relPath); err == nil {
 					configs = append(configs, ConfigFile{
-						RelativePath: filepath.Join("mcp-servers", entry.Name(), "config.json"),
+						RelativePath: relPath,
 						Content:      content,
 					})
 				}
@@ -271,9 +334,9 @@ func ReadPluginConfigs(installPath string) ([]ConfigFile, error) {
 	return configs, nil
 }
 
-// readAndFormatJSON reads a JSON file and returns it pretty-printed.
-func readAndFormatJSON(path string) (string, error) {
-	data, err := os.ReadFile(path)
+// readAndFormatJSONFS reads a JSON file from the filesystem and returns it pretty-printed.
+func readAndFormatJSONFS(fsys fs.FS, name string) (string, error) {
+	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return "", err
 	}

@@ -1,36 +1,23 @@
+version: "2"
+
 run:
   timeout: 5m
   modules-download-mode: readonly
 
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-
-  errcheck:
-    check-type-assertions: true
-
-  gofumpt:
-    extra-rules: true
-
-  govet:
-    enable-all: true
-
 linters:
+  default: none
   enable:
     # Error handling
     - errcheck
     - errorlint
 
     # Code quality
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
 
-    # Style and formatting
-    - gofmt
-    - gofumpt
+    # Style
     - unconvert
 
     # Complexity
@@ -44,10 +31,30 @@ linters:
     - misspell
     - gocritic
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - gosec
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+    errcheck:
+      check-type-assertions: true
+    govet:
+      enable-all: true
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+  settings:
+    gofumpt:
+      extra-rules: true
