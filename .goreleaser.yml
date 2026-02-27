@@ -101,3 +101,6 @@ release:
     name: cpm
   draft: false
   prerelease: auto
+
+snapshot:
+  version_template: "{{ .Version }}-pr.{{ .Env.PR_NUMBER }}+{{ .ShortCommit }}"

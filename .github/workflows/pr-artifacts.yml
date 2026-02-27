@@ -4,28 +4,18 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: pr-artifacts-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  build-artifacts:
-    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
-
     steps:
       - uses: actions/checkout@v4
 
@@ -44,48 +34,153 @@ jobs:
           restore-keys: |
             go-${{ runner.os }}-
 
-      - name: Download dependencies for all platforms
-        run: |
-          GOOS=linux GOARCH=amd64 go mod download
-          GOOS=linux GOARCH=arm64 go mod download
-          GOOS=darwin GOARCH=amd64 go mod download
-          GOOS=darwin GOARCH=arm64 go mod download
-          GOOS=windows GOARCH=amd64 go mod download
+      - name: Run golangci-lint
+        run: mise run lint
 
-      - name: Build
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          fail_ci_if_error: false
+
+  build-snapshot:
+    name: Build Snapshot
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Compute snapshot version
+        id: version
+        run: |
+          BASE_VERSION=$(cat version.txt | tr -d '\n')
+          LAST_VERSION_COMMIT=$(git log -1 --format=%H version.txt)
+          COMMIT_COUNT=$(git rev-list --count ${LAST_VERSION_COMMIT}..HEAD)
+          TAG="v${BASE_VERSION}.${COMMIT_COUNT}"
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          SNAPSHOT="${BASE_VERSION}.${COMMIT_COUNT}-pr.${{ github.event.pull_request.number }}+${SHORT_SHA}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "snapshot=$SNAPSHOT" >> $GITHUB_OUTPUT
+          echo "Snapshot base tag: $TAG, full version: $SNAPSHOT"
+
+      - name: Run GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --snapshot --clean
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.tag }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          COMMIT_SHA: ${{ github.sha }}
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          BINARY_NAME="cpm"
-          if [ "$GOOS" = "windows" ]; then
-            BINARY_NAME="cpm.exe"
-          fi
-          go build -ldflags="-s -w \
-            -X github.com/open-cli-collective/cpm/internal/version.Version=pr-${PR_NUMBER} \
-            -X github.com/open-cli-collective/cpm/internal/version.Commit=${COMMIT_SHA} \
-            -X github.com/open-cli-collective/cpm/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-            -X github.com/open-cli-collective/cpm/internal/version.Branch=${BRANCH_NAME}" \
-            -o ${BINARY_NAME} ./cmd/cpm
 
-      - name: Create archive
-        run: |
-          ARCHIVE_NAME="cpm_pr-${{ github.event.pull_request.number }}_${{ matrix.goos }}_${{ matrix.goarch }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip "${ARCHIVE_NAME}.zip" cpm.exe README.md
-          else
-            tar -czvf "${ARCHIVE_NAME}.tar.gz" cpm README.md
-          fi
-
-      - name: Upload artifact
+      - name: Upload linux-amd64
         uses: actions/upload-artifact@v4
         with:
-          name: cpm_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: |
-            *.tar.gz
-            *.zip
+          name: cpm-linux-amd64
+          path: dist/cpm_*_linux_amd64.tar.gz
           retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload linux-arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpm-linux-arm64
+          path: dist/cpm_*_linux_arm64.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload macos-universal
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpm-macos-universal
+          path: dist/cpm_*_darwin_universal.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload windows-amd64
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpm-windows-amd64
+          path: dist/cpm_*_windows_amd64.zip
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Find existing PR comment
+        uses: peter-evans/find-comment@v4
+        id: fc
+        continue-on-error: true
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '## PR Build'
+
+      - name: Create or update PR comment
+        uses: peter-evans/create-or-update-comment@v5
+        continue-on-error: true
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            ## PR Build
+
+            **Version:** `${{ steps.version.outputs.snapshot }}`
+
+            | Platform | Archive |
+            |----------|---------|
+            | Linux (amd64) | `cpm-linux-amd64` |
+            | Linux (arm64) | `cpm-linux-arm64` |
+            | macOS (universal) | `cpm-macos-universal` |
+            | Windows (amd64) | `cpm-windows-amd64` |
+
+            **[Download artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})**
+
+            *Built from ${{ github.event.pull_request.head.sha }}*
