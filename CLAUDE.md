@@ -1,6 +1,6 @@
 # cpm - Claude Plugin Manager
 
-Last verified: 2026-02-14
+Last verified: 2026-02-27
 
 A TUI application for managing Claude Code plugins with clear visibility into installation scopes.
 
@@ -79,8 +79,8 @@ Example: `feat(tui): add plugin filtering with / key`
 
 ## CI & Release Workflow
 
-1. **On every push/PR**: CI runs lint, test, build
-2. **On PR**: Artifacts built for all platforms (downloadable for testing)
+1. **On push to main**: CI runs lint, test, build
+2. **On PR**: Lint, test, then GoReleaser snapshot builds for all platforms; posts a comment with download links
 3. **On merge to main with `feat:` or `fix:` commit**: Auto-release creates tag and triggers release
 4. **On tag push**: GoReleaser builds and publishes to GitHub Releases and Homebrew
 
