@@ -2548,3 +2548,190 @@ func TestRenderPendingIndicator_MultiScopeInstall(t *testing.T) {
 		t.Errorf("renderPendingIndicator(multi-scope install) should contain 'LOCAL': %q", result)
 	}
 }
+
+func TestIsInstalledInProject(t *testing.T) {
+	allScopes := claude.ScopeState{
+		"in-settings@mp": {claude.ScopeProject: true},
+	}
+	workingDir := "/my/project"
+
+	tests := []struct {
+		name string
+		p    claude.InstalledPlugin
+		want bool
+	}{
+		{
+			name: "user scope is always relevant",
+			p:    claude.InstalledPlugin{ID: "foo@mp", Scope: claude.ScopeUser},
+			want: true,
+		},
+		{
+			name: "project scope matching workingDir",
+			p:    claude.InstalledPlugin{ID: "bar@mp", Scope: claude.ScopeProject, ProjectPath: "/my/project"},
+			want: true,
+		},
+		{
+			name: "project scope different workingDir",
+			p:    claude.InstalledPlugin{ID: "baz@mp", Scope: claude.ScopeProject, ProjectPath: "/other/project"},
+			want: false,
+		},
+		{
+			name: "plugin in settings files",
+			p:    claude.InstalledPlugin{ID: "in-settings@mp", Scope: claude.ScopeProject, ProjectPath: "/other/project"},
+			want: true,
+		},
+		{
+			name: "local scope different workingDir",
+			p:    claude.InstalledPlugin{ID: "qux@mp", Scope: claude.ScopeLocal, ProjectPath: "/other/project"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isInstalledInProject(tt.p, workingDir, allScopes)
+			if got != tt.want {
+				t.Errorf("isInstalledInProject() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergePluginsCurrentProjectInstalled(t *testing.T) {
+	// Plugin installed at project scope in the current project should show as installed
+	list := &claude.PluginList{
+		Installed: []claude.InstalledPlugin{
+			{ID: "local-plugin@mp", Version: "1.0.0", Scope: claude.ScopeProject, ProjectPath: "/my/project", Enabled: true},
+		},
+	}
+
+	plugins := mergePlugins(list, "/my/project")
+
+	// Find the plugin (skip group headers)
+	var found *PluginState
+	for i := range plugins {
+		if plugins[i].ID == "local-plugin@mp" {
+			found = &plugins[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("plugin installed in current project should appear in list")
+	}
+	if !found.IsInstalled() {
+		t.Error("plugin should show as installed in current project")
+	}
+	if !found.Enabled {
+		t.Error("plugin should show as enabled")
+	}
+}
+
+func TestMergePluginsOtherProjectNotInstalled(t *testing.T) {
+	// Plugin installed at project scope in ANOTHER project should show without install state
+	list := &claude.PluginList{
+		Installed: []claude.InstalledPlugin{
+			{ID: "remote-plugin@mp", Version: "2.0.0", Scope: claude.ScopeProject, ProjectPath: "/other/project", Enabled: false},
+		},
+	}
+
+	plugins := mergePlugins(list, "/my/project")
+
+	var found *PluginState
+	for i := range plugins {
+		if plugins[i].ID == "remote-plugin@mp" {
+			found = &plugins[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("plugin installed elsewhere should still appear in list")
+	}
+	if found.IsInstalled() {
+		t.Error("plugin from another project should NOT show as installed")
+	}
+	if found.Version != "" {
+		t.Errorf("plugin from another project should have no version, got %q", found.Version)
+	}
+}
+
+func TestMergePluginsUserScopeAlwaysInstalled(t *testing.T) {
+	// User-scoped plugins should always show as installed
+	list := &claude.PluginList{
+		Installed: []claude.InstalledPlugin{
+			{ID: "global-plugin@mp", Version: "3.0.0", Scope: claude.ScopeUser, Enabled: true},
+		},
+	}
+
+	plugins := mergePlugins(list, "/any/project")
+
+	var found *PluginState
+	for i := range plugins {
+		if plugins[i].ID == "global-plugin@mp" {
+			found = &plugins[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("user-scoped plugin should appear in list")
+	}
+	if !found.IsInstalled() {
+		t.Error("user-scoped plugin should show as installed")
+	}
+	if !found.Enabled {
+		t.Error("user-scoped plugin should show as enabled")
+	}
+}
+
+func TestMergePluginsAvailableNotMergedFromOtherProject(t *testing.T) {
+	// An available plugin that's installed in another project should NOT show
+	// as installed in the current project.
+	list := &claude.PluginList{
+		Available: []claude.AvailablePlugin{
+			{PluginID: "shared@mp", Name: "shared", Description: "a shared plugin", MarketplaceName: "mp"},
+		},
+		Installed: []claude.InstalledPlugin{
+			{ID: "shared@mp", Version: "1.0.0", Scope: claude.ScopeProject, ProjectPath: "/other/project", Enabled: false},
+		},
+	}
+
+	plugins := mergePlugins(list, "/my/project")
+
+	var found *PluginState
+	for i := range plugins {
+		if plugins[i].ID == "shared@mp" {
+			found = &plugins[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("available plugin should appear in list")
+	}
+	if found.IsInstalled() {
+		t.Error("available plugin installed elsewhere should NOT show as installed here")
+	}
+	if found.Description != "a shared plugin" {
+		t.Errorf("available plugin should keep its description, got %q", found.Description)
+	}
+}
+
+func TestMergePluginsDeduplicatesInstalledPlugins(t *testing.T) {
+	// CLI can return the same plugin ID multiple times; should only appear once
+	list := &claude.PluginList{
+		Installed: []claude.InstalledPlugin{
+			{ID: "dup@mp", Version: "1.0.0", Scope: claude.ScopeProject, ProjectPath: "/other/a"},
+			{ID: "dup@mp", Version: "1.0.0", Scope: claude.ScopeProject, ProjectPath: "/other/b"},
+		},
+	}
+
+	plugins := mergePlugins(list, "/my/project")
+
+	count := 0
+	for _, p := range plugins {
+		if p.ID == "dup@mp" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("duplicate plugin should appear once, got %d", count)
+	}
+}

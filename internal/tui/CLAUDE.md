@@ -9,7 +9,7 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 ## Contracts
 
 - **Exposes**: `NewModel(client, workingDir) -> *Model`, implements `tea.Model` interface
-- **Guarantees**: Pending operations (install/uninstall/enable/disable/scope-change) tracked until explicit Apply. Filter preserves selection when possible. Only project/local plugins for current workingDir are shown (plus user-scoped plugins).
+- **Guarantees**: Pending operations (install/uninstall/enable/disable/scope-change) tracked until explicit Apply. Filter preserves selection when possible. All plugins (available + installed) are shown; installed state (scopes, enabled/disabled) reflects only the current workingDir. Plugins installed elsewhere appear without install state.
 - **Expects**: Valid `claude.Client` implementation. Terminal with reasonable size (handles resize).
 
 ## Dependencies

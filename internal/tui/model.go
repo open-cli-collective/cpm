@@ -398,7 +398,7 @@ func (m *Model) loadPlugins() tea.Msg {
 }
 
 // mergePlugins combines installed and available plugins, grouped by marketplace.
-// Only installed plugins relevant to workingDir are included.
+// All plugins are shown; installed state reflects the current workingDir only.
 func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 	allScopes := claude.GetAllEnabledPlugins(workingDir)
 	installedByID := buildInstalledByID(list.Installed)
@@ -407,19 +407,34 @@ func mergePlugins(list *claude.PluginList, workingDir string) []PluginState {
 
 	// Process available plugins
 	for _, p := range list.Available {
-		state := processAvailablePlugin(p, installedByID, allScopes, seenInstalled)
+		state := processAvailablePlugin(p, installedByID, allScopes, seenInstalled, workingDir)
 		byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 	}
 
-	// Process installed plugins not in available list
+	// Process installed plugins not in available list (includes plugins the CLI
+	// hides from the available array because they're installed somewhere).
 	for _, p := range list.Installed {
-		state, ok := processInstalledPlugin(p, allScopes, seenInstalled)
+		state, ok := processInstalledPlugin(p, allScopes, seenInstalled, workingDir)
 		if ok {
 			byMarketplace[state.Marketplace] = append(byMarketplace[state.Marketplace], state)
 		}
 	}
 
 	return sortAndGroupByMarketplace(byMarketplace)
+}
+
+// isInstalledInProject reports whether an installed plugin belongs to the
+// current project context: user-scoped (global), matching projectPath, or
+// present in the project's settings files.
+func isInstalledInProject(p claude.InstalledPlugin, workingDir string, allScopes claude.ScopeState) bool {
+	if p.Scope == claude.ScopeUser {
+		return true
+	}
+	if p.ProjectPath == workingDir {
+		return true
+	}
+	_, inSettings := allScopes[p.ID]
+	return inSettings
 }
 
 // buildInstalledByID creates a map of installed plugins by ID.
@@ -431,14 +446,17 @@ func buildInstalledByID(installed []claude.InstalledPlugin) map[string]claude.In
 	return result
 }
 
-// processAvailablePlugin processes an available plugin and merges with installed data.
-func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool) PluginState {
+// processAvailablePlugin processes an available plugin and merges with installed data
+// only if the plugin is installed in the current project.
+func processAvailablePlugin(p claude.AvailablePlugin, installedByID map[string]claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool, workingDir string) PluginState {
 	state := PluginStateFromAvailable(p)
 	state.AvailableVersion = p.Version
 
 	if installed, ok := installedByID[p.PluginID]; ok {
-		mergeInstalledInfo(&state, installed, p.Version)
 		seenInstalled[p.PluginID] = true
+		if isInstalledInProject(installed, workingDir, allScopes) {
+			mergeInstalledInfo(&state, installed, p.Version)
+		}
 	}
 
 	// Apply scope data from settings files
@@ -470,28 +488,45 @@ func mergeInstalledInfo(state *PluginState, installed claude.InstalledPlugin, av
 	}
 }
 
-// processInstalledPlugin processes an installed plugin not in the available list.
-// Returns the state and true if it should be included, false otherwise.
-func processInstalledPlugin(p claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool) (PluginState, bool) {
-	// Include if plugin appears in any settings file OR is user-scoped in CLI output
-	_, inSettings := allScopes[p.ID]
-	isRelevant := p.Scope == claude.ScopeUser || inSettings
-
-	if !isRelevant || seenInstalled[p.ID] {
+// processInstalledPlugin processes an installed plugin not already handled by
+// processAvailablePlugin. Plugins installed in the current project are shown
+// with full state; plugins only installed elsewhere appear without install state
+// (the CLI hides these from the available array, so this is the only way they
+// show up).
+func processInstalledPlugin(p claude.InstalledPlugin, allScopes claude.ScopeState, seenInstalled map[string]bool, workingDir string) (PluginState, bool) {
+	// Skip duplicates (CLI can return the same plugin multiple times)
+	if seenInstalled[p.ID] {
 		return PluginState{}, false
 	}
-
 	seenInstalled[p.ID] = true
-	state := PluginStateFromInstalled(p)
 
-	// Apply scope data from settings files
-	if scopes, ok := allScopes[p.ID]; ok {
-		state.InstalledScopes = scopes
-	} else if p.Scope == claude.ScopeUser {
-		// User-scoped plugin not in settings — CLI is authority
-		state.InstalledScopes = map[claude.Scope]bool{claude.ScopeUser: true}
+	if isInstalledInProject(p, workingDir, allScopes) {
+		state := PluginStateFromInstalled(p)
+		if scopes, ok := allScopes[p.ID]; ok {
+			state.InstalledScopes = scopes
+		} else if p.Scope == claude.ScopeUser {
+			state.InstalledScopes = map[claude.Scope]bool{claude.ScopeUser: true}
+		}
+		return state, true
 	}
 
+	// Installed elsewhere — show without install state so the user can install
+	// it in the current project. Read cached manifest for description/metadata.
+	name, marketplace := parsePluginID(p.ID)
+	state := PluginState{
+		ID:              p.ID,
+		Name:            name,
+		Marketplace:     marketplace,
+		InstalledScopes: map[claude.Scope]bool{},
+	}
+	if p.InstallPath != "" {
+		if manifest, err := claude.ReadPluginManifest(p.InstallPath); err == nil {
+			state.Description = manifest.Description
+			state.AuthorName = manifest.AuthorName
+			state.AuthorEmail = manifest.AuthorEmail
+		}
+		state.Components = claude.ScanPluginComponents(p.InstallPath)
+	}
 	return state, true
 }
 
