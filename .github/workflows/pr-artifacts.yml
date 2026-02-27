@@ -68,7 +68,7 @@ jobs:
           fail_ci_if_error: false
 
   build-snapshot:
-    name: Build
+    name: Build Snapshot
     needs: [lint, test]
     runs-on: ubuntu-latest
     steps:
