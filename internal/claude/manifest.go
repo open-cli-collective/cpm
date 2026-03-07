@@ -391,10 +391,8 @@ func ResolveMarketplaceSourcePath(marketplace string, source any) string {
 // MarketplaceNameFromPluginID extracts the marketplace name from a plugin ID.
 // Plugin IDs use "name@marketplace" format.
 func MarketplaceNameFromPluginID(pluginID string) string {
-	for i := len(pluginID) - 1; i >= 0; i-- {
-		if pluginID[i] == '@' {
-			return pluginID[i+1:]
-		}
+	if i := strings.LastIndexByte(pluginID, '@'); i >= 0 {
+		return pluginID[i+1:]
 	}
 	return ""
 }
@@ -418,37 +416,25 @@ func ReadKnownMarketplaces() (map[string]KnownMarketplace, error) {
 	if err != nil {
 		return nil, err
 	}
-	return readKnownMarketplaces(filepath.Join(homeDir, ".claude", "plugins"))
+	return ReadKnownMarketplacesFrom(filepath.Join(homeDir, ".claude", "plugins"))
 }
 
 // ReadKnownMarketplacesFrom reads known_marketplaces.json from the given directory.
-// This is useful for testing with a custom directory.
 func ReadKnownMarketplacesFrom(dir string) (map[string]KnownMarketplace, error) {
-	return readKnownMarketplaces(dir)
-}
-
-// readKnownMarketplaces is the internal implementation with injectable directory.
-func readKnownMarketplaces(dir string) (map[string]KnownMarketplace, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
 
-	f, err := root.Open("known_marketplaces.json")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, err
+	data, readErr := fs.ReadFile(root.FS(), "known_marketplaces.json")
+	if readErr != nil {
+		return nil, readErr
 	}
 
 	var result map[string]KnownMarketplace
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(data, &result); unmarshalErr != nil {
+		return nil, unmarshalErr
 	}
 	return result, nil
 }
@@ -495,14 +481,10 @@ func SyncExtraMarketplaces(settingsPath string, knownMarketplaces map[string]Kno
 	dir := filepath.Dir(settingsPath)
 	file := filepath.Base(settingsPath)
 
-	// Ensure directory exists
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create settings dir: %w", err)
-	}
-
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return fmt.Errorf("open settings dir: %w", err)
+		// Directory doesn't exist; no settings to sync.
+		return nil
 	}
 	defer func() { _ = root.Close() }()
 

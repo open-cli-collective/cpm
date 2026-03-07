@@ -592,9 +592,9 @@ func TestReadKnownMarketplaces(t *testing.T) {
 		t.Fatal(writeErr)
 	}
 
-	result, readErr := readKnownMarketplaces(tmp)
+	result, readErr := ReadKnownMarketplacesFrom(tmp)
 	if readErr != nil {
-		t.Fatalf("readKnownMarketplaces: %v", readErr)
+		t.Fatalf("ReadKnownMarketplacesFrom: %v", readErr)
 	}
 
 	km, ok := result["ed3d-plugins"]

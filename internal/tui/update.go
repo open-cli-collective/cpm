@@ -717,21 +717,18 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.executeOperation(m.progress.operations[m.progress.currentIdx])
 		}
 
-		// Sync extraKnownMarketplaces after all operations complete
-		m.syncMarketplaces()
-
 		// All done - refresh and show summary
 		m.mode = ModeSummary
 		m.main.pendingOps = make(map[string]Operation)
-		return m, m.loadPlugins
+		return m, tea.Batch(m.loadPlugins, m.syncMarketplacesCmd())
 	}
 	return m, nil
 }
 
-// syncMarketplaces reconciles extraKnownMarketplaces in project/local settings files
-// after all operations complete. Errors are non-fatal.
-func (m *Model) syncMarketplaces() {
-	// Determine which settings files were affected
+// syncMarketplacesCmd returns a tea.Cmd that reconciles extraKnownMarketplaces
+// in project/local settings files after all operations complete.
+func (m *Model) syncMarketplacesCmd() tea.Cmd {
+	// Collect affected paths before returning the command closure
 	affectedPaths := make(map[string]bool)
 	for _, op := range m.progress.operations {
 		for _, scope := range op.Scopes {
@@ -744,7 +741,6 @@ func (m *Model) syncMarketplaces() {
 				affectedPaths[p] = true
 			}
 		}
-		// For migrate operations, check original scopes too
 		if op.Type == OpMigrate {
 			for scope := range op.OriginalScopes {
 				if p := claude.SettingsPathForScope(m.workingDir, scope); p != "" {
@@ -755,16 +751,18 @@ func (m *Model) syncMarketplaces() {
 	}
 
 	if len(affectedPaths) == 0 {
-		return
+		return nil
 	}
 
-	known, err := claude.ReadKnownMarketplaces()
-	if err != nil {
-		return // Non-fatal: marketplace data unavailable
-	}
-
-	for path := range affectedPaths {
-		_ = claude.SyncExtraMarketplaces(path, known)
+	return func() tea.Msg {
+		known, err := claude.ReadKnownMarketplaces()
+		if err != nil {
+			return nil // Non-fatal
+		}
+		for path := range affectedPaths {
+			_ = claude.SyncExtraMarketplaces(path, known)
+		}
+		return nil
 	}
 }
 

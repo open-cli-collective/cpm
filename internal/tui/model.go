@@ -212,12 +212,11 @@ func PluginStateFromAvailable(p claude.AvailablePlugin) PluginState {
 
 // parsePluginID splits "name@marketplace" into (name, marketplace).
 func parsePluginID(id string) (name, marketplace string) {
-	for i := len(id) - 1; i >= 0; i-- {
-		if id[i] == '@' {
-			return id[:i], id[i+1:]
-		}
+	mp := claude.MarketplaceNameFromPluginID(id)
+	if mp == "" {
+		return id, ""
 	}
-	return id, ""
+	return id[:len(id)-len(mp)-1], mp
 }
 
 // IsInstalled returns true if the plugin is installed at any scope.
