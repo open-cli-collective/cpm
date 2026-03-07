@@ -1,6 +1,6 @@
 # TUI Package
 
-Last verified: 2026-02-14
+Last verified: 2026-03-07
 
 ## Purpose
 
@@ -9,12 +9,12 @@ Implements the two-pane plugin manager interface using Bubble Tea's Elm Architec
 ## Contracts
 
 - **Exposes**: `NewModel(client, workingDir) -> *Model`, implements `tea.Model` interface
-- **Guarantees**: Pending operations (install/uninstall/enable/disable/scope-change) tracked until explicit Apply. Filter preserves selection when possible. All plugins (available + installed) are shown; installed state (scopes, enabled/disabled) reflects only the current workingDir. Plugins installed elsewhere appear without install state.
+- **Guarantees**: Pending operations (install/uninstall/enable/disable/scope-change) tracked until explicit Apply. Filter preserves selection when possible. All plugins (available + installed) are shown; installed state (scopes, enabled/disabled) reflects only the current workingDir. Plugins installed elsewhere appear without install state. After all operations complete, `extraKnownMarketplaces` in affected settings files are automatically synced (adds missing, removes stale).
 - **Expects**: Valid `claude.Client` implementation. Terminal with reasonable size (handles resize).
 
 ## Dependencies
 
-- **Uses**: internal/claude (Client interface, GetAllEnabledPlugins, ScopeState), Bubble Tea, Lip Gloss
+- **Uses**: internal/claude (Client interface, GetAllEnabledPlugins, ScopeState, SyncExtraMarketplaces, ReadKnownMarketplaces, SettingsPathForScope), Bubble Tea, Lip Gloss
 - **Used by**: cmd/cpm (creates Model, runs tea.Program)
 - **Boundary**: No direct CLI calls; all plugin operations go through Client
 

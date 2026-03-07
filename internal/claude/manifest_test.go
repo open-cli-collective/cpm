@@ -500,3 +500,237 @@ func TestGetAllEnabledPluginsDisabledButPresent(t *testing.T) {
 		}
 	}
 }
+
+func TestMarketplaceNameFromPluginID(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"plugin-a@ed3d-plugins", "ed3d-plugins"},
+		{"context7@claude-plugins-official", "claude-plugins-official"},
+		{"no-marketplace", ""},
+		{"multi@at@signs", "signs"},
+	}
+	for _, tt := range tests {
+		got := MarketplaceNameFromPluginID(tt.id)
+		if got != tt.want {
+			t.Errorf("MarketplaceNameFromPluginID(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestSettingsPathForScope(t *testing.T) {
+	tests := []struct {
+		scope Scope
+		want  string
+	}{
+		{ScopeProject, "/work/.claude/settings.json"},
+		{ScopeLocal, "/work/.claude/settings.local.json"},
+		{ScopeUser, ""},
+		{ScopeNone, ""},
+	}
+	for _, tt := range tests {
+		got := SettingsPathForScope("/work", tt.scope)
+		if got != tt.want {
+			t.Errorf("SettingsPathForScope(%q) = %q, want %q", tt.scope, got, tt.want)
+		}
+	}
+}
+
+// setupTempDir creates a temp directory and returns its path with a cleanup function.
+func setupTempDir(t *testing.T, pattern string) string {
+	t.Helper()
+	tmp, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	return tmp
+}
+
+// setupClaudeDir creates a .claude directory inside tmp and writes a settings file.
+func setupClaudeDir(t *testing.T, tmp, settingsContent string) string {
+	t.Helper()
+	claudeDir := filepath.Join(tmp, ".claude")
+	if mkErr := os.MkdirAll(claudeDir, 0o750); mkErr != nil {
+		t.Fatal(mkErr)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if writeErr := os.WriteFile(settingsPath, []byte(settingsContent), 0o644); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	return settingsPath
+}
+
+// readRawSettingsFile reads a settings file and returns it as a raw JSON map.
+func readRawSettingsFile(t *testing.T, path string) map[string]json.RawMessage {
+	t.Helper()
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	var raw map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(data, &raw); unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+	return raw
+}
+
+func TestReadKnownMarketplaces(t *testing.T) {
+	tmp := setupTempDir(t, "known-mp-*")
+
+	data := `{
+		"ed3d-plugins": {
+			"source": {"source": "github", "repo": "ed3dai/ed3d-plugins"},
+			"installLocation": "/test/path",
+			"lastUpdated": "2026-01-01T00:00:00Z",
+			"autoUpdate": true
+		}
+	}`
+	writeErr := os.WriteFile(filepath.Join(tmp, "known_marketplaces.json"), []byte(data), 0o644)
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+
+	result, readErr := readKnownMarketplaces(tmp)
+	if readErr != nil {
+		t.Fatalf("readKnownMarketplaces: %v", readErr)
+	}
+
+	km, ok := result["ed3d-plugins"]
+	if !ok {
+		t.Fatal("ed3d-plugins not found")
+	}
+	gh, ok := km.Source.(*GitHubSource)
+	if !ok {
+		t.Fatalf("Source is %T, want *GitHubSource", km.Source)
+	}
+	if gh.Repo != "ed3dai/ed3d-plugins" {
+		t.Errorf("Repo = %q, want %q", gh.Repo, "ed3dai/ed3d-plugins")
+	}
+}
+
+func TestSyncExtraMarketplacesAddsEntry(t *testing.T) {
+	tmp := setupTempDir(t, "sync-mp-*")
+	settingsPath := setupClaudeDir(t, tmp, `{"enabledPlugins":{"my-plugin@ed3d-plugins":true}}`)
+
+	known := map[string]KnownMarketplace{
+		"ed3d-plugins": {Source: GitHubSource{Repo: "ed3dai/ed3d-plugins"}},
+	}
+
+	syncErr := SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatalf("SyncExtraMarketplaces: %v", syncErr)
+	}
+
+	raw := readRawSettingsFile(t, settingsPath)
+
+	extraRaw, ok := raw["extraKnownMarketplaces"]
+	if !ok {
+		t.Fatal("extraKnownMarketplaces not found in settings")
+	}
+
+	var extra map[string]MarketplaceEntry
+	unmarshalErr := json.Unmarshal(extraRaw, &extra)
+	if unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+
+	entry, ok := extra["ed3d-plugins"]
+	if !ok {
+		t.Fatal("ed3d-plugins not found in extraKnownMarketplaces")
+	}
+	gh, ok := entry.Source.(*GitHubSource)
+	if !ok {
+		t.Fatalf("Source is %T, want *GitHubSource", entry.Source)
+	}
+	if gh.Repo != "ed3dai/ed3d-plugins" {
+		t.Errorf("Repo = %q, want %q", gh.Repo, "ed3dai/ed3d-plugins")
+	}
+}
+
+func TestSyncExtraMarketplacesRemovesEntry(t *testing.T) {
+	tmp := setupTempDir(t, "sync-mp-*")
+	settingsPath := setupClaudeDir(t, tmp,
+		`{"enabledPlugins":{},"extraKnownMarketplaces":{"ed3d-plugins":{"source":{"source":"github","repo":"ed3dai/ed3d-plugins"}}}}`)
+
+	known := map[string]KnownMarketplace{
+		"ed3d-plugins": {Source: GitHubSource{Repo: "ed3dai/ed3d-plugins"}},
+	}
+
+	syncErr := SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatalf("SyncExtraMarketplaces: %v", syncErr)
+	}
+
+	raw := readRawSettingsFile(t, settingsPath)
+	if _, ok := raw["extraKnownMarketplaces"]; ok {
+		t.Error("extraKnownMarketplaces should have been removed")
+	}
+}
+
+func TestSyncExtraMarketplacesPreservesUnknownFields(t *testing.T) {
+	tmp := setupTempDir(t, "sync-mp-*")
+	settingsPath := setupClaudeDir(t, tmp,
+		`{"enabledPlugins":{"p@mp":true},"env":{"FOO":"bar"},"permissions":{"allow":["*"]}}`)
+
+	known := map[string]KnownMarketplace{
+		"mp": {Source: GitHubSource{Repo: "owner/repo"}},
+	}
+
+	syncErr := SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatal(syncErr)
+	}
+
+	raw := readRawSettingsFile(t, settingsPath)
+	if _, ok := raw["env"]; !ok {
+		t.Error("env field was not preserved")
+	}
+	if _, ok := raw["permissions"]; !ok {
+		t.Error("permissions field was not preserved")
+	}
+	if _, ok := raw["extraKnownMarketplaces"]; !ok {
+		t.Error("extraKnownMarketplaces should have been added")
+	}
+}
+
+func TestSyncExtraMarketplacesIdempotent(t *testing.T) {
+	tmp := setupTempDir(t, "sync-mp-*")
+	settingsPath := setupClaudeDir(t, tmp,
+		`{"enabledPlugins":{"p@mp":true},"extraKnownMarketplaces":{"mp":{"source":{"source":"github","repo":"owner/repo"}}}}`)
+
+	known := map[string]KnownMarketplace{
+		"mp": {Source: GitHubSource{Repo: "owner/repo"}},
+	}
+
+	infoBefore, _ := os.Stat(settingsPath)
+
+	syncErr := SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatal(syncErr)
+	}
+
+	infoAfter, _ := os.Stat(settingsPath)
+	if !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
+		t.Error("file was rewritten despite no changes needed")
+	}
+}
+
+func TestSyncExtraMarketplacesCreatesFile(t *testing.T) {
+	tmp := setupTempDir(t, "sync-mp-*")
+	settingsPath := filepath.Join(tmp, ".claude", "settings.json")
+
+	known := map[string]KnownMarketplace{
+		"mp": {Source: GitHubSource{Repo: "owner/repo"}},
+	}
+
+	syncErr := SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatal(syncErr)
+	}
+
+	if _, statErr := os.Stat(settingsPath); statErr == nil {
+		t.Error("file should not have been created when there are no plugins")
+	}
+}

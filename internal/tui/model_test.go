@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -2617,6 +2618,7 @@ func TestMergePluginsCurrentProjectInstalled(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("plugin installed in current project should appear in list")
+		return
 	}
 	if !found.IsInstalled() {
 		t.Error("plugin should show as installed in current project")
@@ -2645,6 +2647,7 @@ func TestMergePluginsOtherProjectNotInstalled(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("plugin installed elsewhere should still appear in list")
+		return
 	}
 	if found.IsInstalled() {
 		t.Error("plugin from another project should NOT show as installed")
@@ -2673,6 +2676,7 @@ func TestMergePluginsUserScopeAlwaysInstalled(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("user-scoped plugin should appear in list")
+		return
 	}
 	if !found.IsInstalled() {
 		t.Error("user-scoped plugin should show as installed")
@@ -2705,6 +2709,7 @@ func TestMergePluginsAvailableNotMergedFromOtherProject(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("available plugin should appear in list")
+		return
 	}
 	if found.IsInstalled() {
 		t.Error("available plugin installed elsewhere should NOT show as installed here")
@@ -2733,5 +2738,100 @@ func TestMergePluginsDeduplicatesInstalledPlugins(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("duplicate plugin should appear once, got %d", count)
+	}
+}
+
+// setupTuiTempDir creates a temp directory with cleanup.
+func setupTuiTempDir(t *testing.T, pattern string) string {
+	t.Helper()
+	tmp, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	return tmp
+}
+
+// setupTuiClaudeDir creates a .claude directory with a settings file.
+func setupTuiClaudeDir(t *testing.T, tmp, settingsContent string) string {
+	t.Helper()
+	claudeDir := filepath.Join(tmp, ".claude")
+	mkErr := os.MkdirAll(claudeDir, 0o750)
+	if mkErr != nil {
+		t.Fatal(mkErr)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	writeErr := os.WriteFile(settingsPath, []byte(settingsContent), 0o644)
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	return settingsPath
+}
+
+func TestSyncMarketplacesProjectScope(t *testing.T) {
+	tmp := setupTuiTempDir(t, "tui-sync-*")
+	settingsPath := setupTuiClaudeDir(t, tmp, `{"enabledPlugins":{"my-plugin@ed3d-plugins":true}}`)
+
+	knownDir := setupTuiTempDir(t, "known-mp-*")
+	knownData := `{"ed3d-plugins":{"source":{"source":"github","repo":"ed3dai/ed3d-plugins"},"installLocation":"/test","lastUpdated":"2026-01-01T00:00:00Z"}}`
+	writeErr := os.WriteFile(filepath.Join(knownDir, "known_marketplaces.json"), []byte(knownData), 0o644)
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+
+	known, readErr := claude.ReadKnownMarketplacesFrom(knownDir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+
+	syncErr := claude.SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatal(syncErr)
+	}
+
+	data, dataErr := os.ReadFile(settingsPath)
+	if dataErr != nil {
+		t.Fatal(dataErr)
+	}
+
+	if !strings.Contains(string(data), "extraKnownMarketplaces") {
+		t.Error("extraKnownMarketplaces should have been added to settings")
+	}
+	if !strings.Contains(string(data), "ed3dai/ed3d-plugins") {
+		t.Error("ed3d-plugins marketplace source should be in settings")
+	}
+}
+
+func TestSyncMarketplacesUserScopeSkipped(t *testing.T) {
+	path := claude.SettingsPathForScope("/test", claude.ScopeUser)
+	if path != "" {
+		t.Errorf("SettingsPathForScope(user) = %q, want empty", path)
+	}
+}
+
+func TestSyncMarketplacesMixedOperations(t *testing.T) {
+	tmp := setupTuiTempDir(t, "tui-sync-mixed-*")
+	settingsPath := setupTuiClaudeDir(t, tmp, `{"enabledPlugins":{"plugA@mp-a":true,"plugC@mp-a":true}}`)
+
+	known := map[string]claude.KnownMarketplace{
+		"mp-a": {Source: claude.GitHubSource{Repo: "owner/mp-a"}},
+		"mp-b": {Source: claude.GitHubSource{Repo: "owner/mp-b"}},
+	}
+
+	syncErr := claude.SyncExtraMarketplaces(settingsPath, known)
+	if syncErr != nil {
+		t.Fatal(syncErr)
+	}
+
+	data, readErr := os.ReadFile(settingsPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+
+	if !strings.Contains(string(data), "owner/mp-a") {
+		t.Error("mp-a should be in extraKnownMarketplaces")
+	}
+	if strings.Contains(string(data), "owner/mp-b") {
+		t.Error("mp-b should NOT be in extraKnownMarketplaces (no plugins)")
 	}
 }
