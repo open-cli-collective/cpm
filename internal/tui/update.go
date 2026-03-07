@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -225,7 +227,7 @@ func (m *Model) applyScopeDialogDelta() {
 		m.main.pendingOps[dialog.pluginID] = Operation{
 			PluginID:       dialog.pluginID,
 			Scopes:         uninstallScopes,
-			OriginalScopes: copyMap(original),
+			OriginalScopes: maps.Clone(original),
 			Type:           OpUninstall,
 		}
 	case len(installScopes) > 0 && len(uninstallScopes) == 0:
@@ -233,7 +235,7 @@ func (m *Model) applyScopeDialogDelta() {
 		m.main.pendingOps[dialog.pluginID] = Operation{
 			PluginID:       dialog.pluginID,
 			Scopes:         installScopes,
-			OriginalScopes: copyMap(original),
+			OriginalScopes: maps.Clone(original),
 			Type:           OpInstall,
 		}
 	default:
@@ -244,7 +246,7 @@ func (m *Model) applyScopeDialogDelta() {
 			PluginID:        dialog.pluginID,
 			Scopes:          installScopes,
 			UninstallScopes: uninstallScopes,
-			OriginalScopes:  copyMap(original),
+			OriginalScopes:  maps.Clone(original),
 			Type:            OpScopeChange,
 		}
 	}
@@ -297,7 +299,7 @@ func (m *Model) moveDown() {
 // pageUp moves up by a page.
 func (m *Model) pageUp() {
 	pageSize := m.getPageSize()
-	for i := 0; i < pageSize; i++ {
+	for range pageSize {
 		m.moveUp()
 	}
 }
@@ -305,7 +307,7 @@ func (m *Model) pageUp() {
 // pageDown moves down by a page.
 func (m *Model) pageDown() {
 	pageSize := m.getPageSize()
-	for i := 0; i < pageSize; i++ {
+	for range pageSize {
 		m.moveDown()
 	}
 }
@@ -358,10 +360,7 @@ func (m *Model) ensureVisible() {
 	if m.listOffset < 0 {
 		m.listOffset = 0
 	}
-	maxOffset := len(m.plugins) - pageSize
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := max(len(m.plugins)-pageSize, 0)
 	if m.listOffset > maxOffset {
 		m.listOffset = maxOffset
 	}
@@ -400,7 +399,7 @@ func (m *Model) selectForInstall(scope claude.Scope) {
 			m.main.pendingOps[plugin.ID] = Operation{
 				PluginID:       plugin.ID,
 				Scopes:         []claude.Scope{scope},
-				OriginalScopes: copyMap(plugin.InstalledScopes),
+				OriginalScopes: maps.Clone(plugin.InstalledScopes),
 				Type:           OpMigrate,
 			}
 			continue
@@ -455,7 +454,7 @@ func (m *Model) computeNextToggleOp(plugin *PluginState) *Operation {
 			return &Operation{
 				PluginID:       plugin.ID,
 				Scopes:         []claude.Scope{},
-				OriginalScopes: copyMap(plugin.InstalledScopes),
+				OriginalScopes: maps.Clone(plugin.InstalledScopes),
 				Type:           OpUninstall,
 			}
 		}
@@ -473,7 +472,7 @@ func (m *Model) firstToggleOp(plugin *PluginState, scope claude.Scope) *Operatio
 		return &Operation{
 			PluginID:       plugin.ID,
 			Scopes:         []claude.Scope{scope},
-			OriginalScopes: copyMap(plugin.InstalledScopes),
+			OriginalScopes: maps.Clone(plugin.InstalledScopes),
 			Type:           OpMigrate,
 		}
 	}
@@ -514,7 +513,7 @@ func (m *Model) selectForUninstall() {
 		m.main.pendingOps[plugin.ID] = Operation{
 			PluginID:       plugin.ID,
 			Scopes:         []claude.Scope{plugin.SingleScope()},
-			OriginalScopes: copyMap(plugin.InstalledScopes),
+			OriginalScopes: maps.Clone(plugin.InstalledScopes),
 			Type:           OpUninstall,
 		}
 	}
@@ -587,7 +586,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 	}
 
 	// Sort operations: uninstalls first, then migrations, then scope changes, then updates, then installs, then enable/disable
-	sort.Slice(m.progress.operations, func(i, j int) bool {
+	slices.SortFunc(m.progress.operations, func(a, b Operation) int {
 		typeOrder := map[OperationType]int{
 			OpUninstall:   0,
 			OpMigrate:     1,
@@ -597,14 +596,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 			OpEnable:      5,
 			OpDisable:     6,
 		}
-		orderI := typeOrder[m.progress.operations[i].Type]
-		orderJ := typeOrder[m.progress.operations[j].Type]
-
-		// If same order, maintain stable sort (don't swap)
-		if orderI == orderJ {
-			return false
-		}
-		return orderI < orderJ
+		return cmp.Compare(typeOrder[a.Type], typeOrder[b.Type])
 	})
 
 	m.progress.currentIdx = 0
@@ -943,11 +935,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseButtonLeft:
 		m.handleMouseClick(msg)
 	case tea.MouseButtonWheelUp:
-		for i := 0; i < wheelScrollSpeed; i++ {
+		for range wheelScrollSpeed {
 			m.moveUp()
 		}
 	case tea.MouseButtonWheelDown:
-		for i := 0; i < wheelScrollSpeed; i++ {
+		for range wheelScrollSpeed {
 			m.moveDown()
 		}
 	}
@@ -1031,12 +1023,12 @@ func (m *Model) extractNonHeaderPlugins() []PluginState {
 func applySortMode(plugins []PluginState, sortMode SortMode) {
 	switch sortMode {
 	case SortByNameAsc:
-		sort.Slice(plugins, func(i, j int) bool {
-			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		slices.SortFunc(plugins, func(a, b PluginState) int {
+			return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		})
 	case SortByNameDesc:
-		sort.Slice(plugins, func(i, j int) bool {
-			return strings.ToLower(plugins[i].Name) > strings.ToLower(plugins[j].Name)
+		slices.SortFunc(plugins, func(a, b PluginState) int {
+			return cmp.Compare(strings.ToLower(b.Name), strings.ToLower(a.Name))
 		})
 	case SortByScope:
 		sortByScope(plugins)
@@ -1053,23 +1045,21 @@ func sortByScope(plugins []PluginState) {
 		claude.ScopeUser:    2,
 		claude.ScopeNone:    3,
 	}
-	sort.Slice(plugins, func(i, j int) bool {
-		orderI := scopeOrder[plugins[i].SingleScope()]
-		orderJ := scopeOrder[plugins[j].SingleScope()]
-		if orderI != orderJ {
-			return orderI < orderJ
+	slices.SortFunc(plugins, func(a, b PluginState) int {
+		if c := cmp.Compare(scopeOrder[a.SingleScope()], scopeOrder[b.SingleScope()]); c != 0 {
+			return c
 		}
-		return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
 }
 
 // sortByMarketplace sorts plugins by marketplace name.
 func sortByMarketplace(plugins []PluginState) {
-	sort.Slice(plugins, func(i, j int) bool {
-		if plugins[i].Marketplace != plugins[j].Marketplace {
-			return plugins[i].Marketplace < plugins[j].Marketplace
+	slices.SortFunc(plugins, func(a, b PluginState) int {
+		if c := cmp.Compare(a.Marketplace, b.Marketplace); c != 0 {
+			return c
 		}
-		return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
 }
 
@@ -1157,7 +1147,7 @@ func rebuildWithGroupHeaders(plugins []PluginState, sortMode SortMode) []PluginS
 			}
 			byGroup[group] = append(byGroup[group], p)
 		}
-		sort.Strings(groups) // Sort groups alphabetically
+		slices.Sort(groups) // Sort groups alphabetically
 		for _, group := range groups {
 			result = append(result, PluginState{
 				Name:          group,
@@ -1167,12 +1157,12 @@ func rebuildWithGroupHeaders(plugins []PluginState, sortMode SortMode) []PluginS
 			// Sort within group by current sort mode
 			groupPlugins := byGroup[group]
 			if sortMode == SortByNameDesc {
-				sort.Slice(groupPlugins, func(i, j int) bool {
-					return strings.ToLower(groupPlugins[i].Name) > strings.ToLower(groupPlugins[j].Name)
+				slices.SortFunc(groupPlugins, func(a, b PluginState) int {
+					return cmp.Compare(strings.ToLower(b.Name), strings.ToLower(a.Name))
 				})
 			} else {
-				sort.Slice(groupPlugins, func(i, j int) bool {
-					return strings.ToLower(groupPlugins[i].Name) < strings.ToLower(groupPlugins[j].Name)
+				slices.SortFunc(groupPlugins, func(a, b PluginState) int {
+					return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 				})
 			}
 			result = append(result, groupPlugins...)
