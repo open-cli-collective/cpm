@@ -1,6 +1,6 @@
 # Claude CLI Client
 
-Last verified: 2026-02-14
+Last verified: 2026-03-07
 
 ## Purpose
 
@@ -14,7 +14,12 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 - **Exposes**: `ResolveMarketplaceSourcePath(marketplace, source)` - resolves local marketplace paths
 - **Exposes**: `GetAllEnabledPlugins(workingDir)` - reads all three settings files (user, project, local) to get multi-scope plugin data
 - **Exposes**: `ReadProjectSettings(settingsPath)` - reads a single settings file
-- **Guarantees**: Returns structured `PluginList` with typed `InstalledPlugin`/`AvailablePlugin`. Errors include stderr output.
+- **Exposes**: `MarketplaceNameFromPluginID(pluginID)` - extracts marketplace from `name@marketplace` format
+- **Exposes**: `SettingsPathForScope(workingDir, scope)` - returns settings file path for project/local scope
+- **Exposes**: `ReadKnownMarketplaces()` - reads `~/.claude/plugins/known_marketplaces.json`
+- **Exposes**: `SyncExtraMarketplaces(settingsPath, knownMarketplaces)` - reconciles `extraKnownMarketplaces` in a settings file based on its `enabledPlugins`
+- **Exposes**: `MarketplaceSource` interface with 7 concrete types (GitHubSource, GitSource, URLSource, NPMSource, FileSource, DirectorySource, HostPatternSource), `MarketplaceEntry`, `KnownMarketplace`
+- **Guarantees**: Returns structured `PluginList` with typed `InstalledPlugin`/`AvailablePlugin`. Errors include stderr output. `SyncExtraMarketplaces` uses atomic writes (temp file + rename) for safe settings updates.
 - **Expects**: `claude` binary in PATH (or custom path via `NewClientWithPath`)
 
 ## Dependencies
@@ -31,6 +36,8 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 - Manifest parsing: Handles flexible author field (string or object format)
 - Install/Uninstall use install/uninstall: `InstallPlugin` calls `claude plugin install`, `UninstallPlugin` calls `claude plugin uninstall`. `EnablePlugin`/`DisablePlugin` use `enable`/`disable` for toggling state of already-installed plugins.
 - Multi-scope detection: All three settings files (user, project, local) are read to build a complete `ScopeState` map. This enables later phases to render and manage plugins across multiple scopes from a single data structure.
+- Marketplace source types: Discriminated union via `MarketplaceSource` interface with `SourceType()` discriminator. JSON marshal/unmarshal injects/reads a `"source"` field for type discrimination.
+- Atomic settings writes: `SyncExtraMarketplaces` writes to a temp file then renames via `os.Root.Rename` to avoid partial writes
 
 ## Invariants
 
@@ -41,6 +48,6 @@ Provides a typed Go interface to the Claude Code CLI, plugin manifest reading, a
 
 ## Key Files
 
-- `types.go` - Scope enum, InstalledPlugin, AvailablePlugin, PluginList
+- `types.go` - Scope enum, InstalledPlugin, AvailablePlugin, PluginList, MarketplaceSource types, MarketplaceEntry, KnownMarketplace
 - `client.go` - Client interface and realClient implementation
-- `manifest.go` - PluginManifest, PluginComponents, ProjectSettings, manifest/settings reading and component scanning
+- `manifest.go` - PluginManifest, PluginComponents, ProjectSettings, manifest/settings reading, component scanning, marketplace sync

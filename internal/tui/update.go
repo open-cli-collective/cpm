@@ -720,9 +720,50 @@ func (m *Model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// All done - refresh and show summary
 		m.mode = ModeSummary
 		m.main.pendingOps = make(map[string]Operation)
-		return m, m.loadPlugins
+		return m, tea.Batch(m.loadPlugins, m.syncMarketplacesCmd())
 	}
 	return m, nil
+}
+
+// syncMarketplacesCmd returns a tea.Cmd that reconciles extraKnownMarketplaces
+// in project/local settings files after all operations complete.
+func (m *Model) syncMarketplacesCmd() tea.Cmd {
+	// Collect affected paths before returning the command closure
+	affectedPaths := make(map[string]bool)
+	for _, op := range m.progress.operations {
+		for _, scope := range op.Scopes {
+			if p := claude.SettingsPathForScope(m.workingDir, scope); p != "" {
+				affectedPaths[p] = true
+			}
+		}
+		for _, scope := range op.UninstallScopes {
+			if p := claude.SettingsPathForScope(m.workingDir, scope); p != "" {
+				affectedPaths[p] = true
+			}
+		}
+		if op.Type == OpMigrate {
+			for scope := range op.OriginalScopes {
+				if p := claude.SettingsPathForScope(m.workingDir, scope); p != "" {
+					affectedPaths[p] = true
+				}
+			}
+		}
+	}
+
+	if len(affectedPaths) == 0 {
+		return nil
+	}
+
+	return func() tea.Msg {
+		known, err := claude.ReadKnownMarketplaces()
+		if err != nil {
+			return nil // Non-fatal
+		}
+		for path := range affectedPaths {
+			_ = claude.SyncExtraMarketplaces(path, known)
+		}
+		return nil
+	}
 }
 
 // updateError handles messages in error mode.

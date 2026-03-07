@@ -2,6 +2,8 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -384,4 +386,225 @@ func ResolveMarketplaceSourcePath(marketplace string, source any) string {
 
 	// Construct full path: ~/.claude/plugins/marketplaces/<marketplace>/<source>
 	return filepath.Join(homeDir, ".claude", "plugins", "marketplaces", marketplace, sourcePath)
+}
+
+// MarketplaceNameFromPluginID extracts the marketplace name from a plugin ID.
+// Plugin IDs use "name@marketplace" format.
+func MarketplaceNameFromPluginID(pluginID string) string {
+	if i := strings.LastIndexByte(pluginID, '@'); i >= 0 {
+		return pluginID[i+1:]
+	}
+	return ""
+}
+
+// SettingsPathForScope returns the settings file path for the given scope.
+// Returns empty string for user scope (not applicable).
+func SettingsPathForScope(workingDir string, scope Scope) string {
+	switch scope {
+	case ScopeProject:
+		return filepath.Join(workingDir, ".claude", "settings.json")
+	case ScopeLocal:
+		return filepath.Join(workingDir, ".claude", "settings.local.json")
+	default:
+		return ""
+	}
+}
+
+// ReadKnownMarketplaces reads ~/.claude/plugins/known_marketplaces.json.
+func ReadKnownMarketplaces() (map[string]KnownMarketplace, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return ReadKnownMarketplacesFrom(filepath.Join(homeDir, ".claude", "plugins"))
+}
+
+// ReadKnownMarketplacesFrom reads known_marketplaces.json from the given directory.
+func ReadKnownMarketplacesFrom(dir string) (map[string]KnownMarketplace, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	data, readErr := fs.ReadFile(root.FS(), "known_marketplaces.json")
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	var result map[string]KnownMarketplace
+	if unmarshalErr := json.Unmarshal(data, &result); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+	return result, nil
+}
+
+// atomicWriteRoot writes data to a file atomically using Root.Rename.
+func atomicWriteRoot(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	tmpName := ".tmp." + name
+
+	f, err := root.Create(tmpName)
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		_ = root.Remove(tmpName)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = root.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		_ = root.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := root.Rename(tmpName, name); err != nil {
+		_ = root.Remove(tmpName)
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+
+	return nil
+}
+
+// SyncExtraMarketplaces reconciles extraKnownMarketplaces in a settings file
+// based on the enabledPlugins that are currently present.
+// It adds entries for marketplaces that have plugins but no entry,
+// and removes entries for marketplaces with no remaining plugins.
+func SyncExtraMarketplaces(settingsPath string, knownMarketplaces map[string]KnownMarketplace) error {
+	dir := filepath.Dir(settingsPath)
+	file := filepath.Base(settingsPath)
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		// Directory doesn't exist; no settings to sync.
+		return nil
+	}
+	defer func() { _ = root.Close() }()
+
+	return syncExtraMarketplacesRoot(root, file, knownMarketplaces)
+}
+
+// syncExtraMarketplacesRoot is the internal implementation operating on an os.Root.
+func syncExtraMarketplacesRoot(root *os.Root, name string, knownMarketplaces map[string]KnownMarketplace) error {
+	rawSettings, readErr := readRawSettings(root, name)
+	if readErr != nil {
+		return readErr
+	}
+
+	neededMarketplaces := extractNeededMarketplaces(rawSettings)
+	currentExtra := parseCurrentExtra(rawSettings)
+	desiredExtra := computeDesiredExtra(neededMarketplaces, currentExtra, knownMarketplaces)
+
+	if mapsEqual(currentExtra, desiredExtra) {
+		return nil
+	}
+
+	applyExtraToSettings(rawSettings, desiredExtra)
+
+	output, marshalErr := json.MarshalIndent(rawSettings, "", "  ")
+	if marshalErr != nil {
+		return fmt.Errorf("marshal settings: %w", marshalErr)
+	}
+	output = append(output, '\n')
+
+	return atomicWriteRoot(root, name, output, 0o644)
+}
+
+// readRawSettings reads a settings file into a raw JSON map, or returns an empty map if not found.
+func readRawSettings(root *os.Root, name string) (map[string]json.RawMessage, error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return make(map[string]json.RawMessage), nil
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("read settings: %w", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse settings: %w", err)
+	}
+	return raw, nil
+}
+
+// extractNeededMarketplaces parses enabledPlugins to find which marketplaces are in use.
+func extractNeededMarketplaces(rawSettings map[string]json.RawMessage) map[string]bool {
+	needed := make(map[string]bool)
+	raw, ok := rawSettings["enabledPlugins"]
+	if !ok {
+		return needed
+	}
+	var enabled map[string]bool
+	if json.Unmarshal(raw, &enabled) != nil {
+		return needed
+	}
+	for pluginID := range enabled {
+		if mp := MarketplaceNameFromPluginID(pluginID); mp != "" {
+			needed[mp] = true
+		}
+	}
+	return needed
+}
+
+// parseCurrentExtra parses the current extraKnownMarketplaces from raw settings.
+func parseCurrentExtra(rawSettings map[string]json.RawMessage) map[string]MarketplaceEntry {
+	current := make(map[string]MarketplaceEntry)
+	if raw, ok := rawSettings["extraKnownMarketplaces"]; ok {
+		_ = json.Unmarshal(raw, &current)
+	}
+	return current
+}
+
+// computeDesiredExtra computes the desired extraKnownMarketplaces state.
+func computeDesiredExtra(needed map[string]bool, current map[string]MarketplaceEntry, known map[string]KnownMarketplace) map[string]MarketplaceEntry {
+	desired := make(map[string]MarketplaceEntry)
+	for mp := range needed {
+		if existing, ok := current[mp]; ok {
+			desired[mp] = existing
+		} else if km, ok := known[mp]; ok {
+			desired[mp] = MarketplaceEntry{Source: km.Source}
+		}
+	}
+	return desired
+}
+
+// applyExtraToSettings updates the rawSettings map with the desired extra marketplaces.
+func applyExtraToSettings(rawSettings map[string]json.RawMessage, desired map[string]MarketplaceEntry) {
+	if len(desired) > 0 {
+		extraJSON, err := json.Marshal(desired)
+		if err == nil {
+			rawSettings["extraKnownMarketplaces"] = extraJSON
+		}
+	} else {
+		delete(rawSettings, "extraKnownMarketplaces")
+	}
+}
+
+// mapsEqual compares two MarketplaceEntry maps for equality.
+func mapsEqual(a, b map[string]MarketplaceEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok {
+			return false
+		}
+		// Compare by marshaling to JSON (handles interface comparison)
+		ja, _ := json.Marshal(va)
+		jb, _ := json.Marshal(vb)
+		if string(ja) != string(jb) {
+			return false
+		}
+	}
+	return true
 }
