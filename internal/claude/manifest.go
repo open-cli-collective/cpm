@@ -157,8 +157,7 @@ func listMarkdownFilesFS(fsys fs.FS, dir string) []string {
 
 	var result []string
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			name := strings.TrimSuffix(entry.Name(), ".md")
+		if name, ok := strings.CutSuffix(entry.Name(), ".md"); !entry.IsDir() && ok {
 			result = append(result, name)
 		}
 	}

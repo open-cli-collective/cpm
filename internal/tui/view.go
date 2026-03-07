@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -73,10 +75,7 @@ func (m *Model) renderList(styles Styles) string {
 
 	// Calculate visible range
 	start := m.listOffset
-	end := start + visibleHeight
-	if end > len(plugins) {
-		end = len(plugins)
-	}
+	end := min(start+visibleHeight, len(plugins))
 
 	for i := start; i < end; i++ {
 		plugin := plugins[i]
@@ -189,7 +188,7 @@ func (m *Model) getScopeIndicator(plugin PluginState, styles Styles) string {
 
 // applyScopeDelta returns a new scope set with uninstalls removed and installs added.
 func applyScopeDelta(base map[claude.Scope]bool, uninstall, install []claude.Scope) map[claude.Scope]bool {
-	result := copyMap(base)
+	result := maps.Clone(base)
 	for _, s := range uninstall {
 		delete(result, s)
 	}
@@ -478,19 +477,13 @@ func (m *Model) renderDoc(styles Styles) string {
 	visibleHeight := m.height - 4 // Account for header and help bar
 
 	// Clamp scroll position
-	maxScroll := len(lines) - visibleHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll := max(len(lines)-visibleHeight, 0)
 	if m.doc.scroll > maxScroll {
 		m.doc.scroll = maxScroll
 	}
 
 	// Get visible lines
-	endIdx := m.doc.scroll + visibleHeight
-	if endIdx > len(lines) {
-		endIdx = len(lines)
-	}
+	endIdx := min(m.doc.scroll+visibleHeight, len(lines))
 	visibleLines := lines[m.doc.scroll:endIdx]
 	content := strings.Join(visibleLines, "\n")
 
@@ -527,7 +520,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 
 	// Sort operations by type for consistent display
 	// Uninstalls, then migrations, then updates, then installs, then enables, then disables
-	sort.Slice(operations, func(i, j int) bool {
+	slices.SortFunc(operations, func(a, b Operation) int {
 		typeOrder := map[OperationType]int{
 			OpUninstall: 0,
 			OpMigrate:   1,
@@ -536,7 +529,7 @@ func (m *Model) renderConfirmation(styles Styles) string {
 			OpEnable:    4,
 			OpDisable:   5,
 		}
-		return typeOrder[operations[i].Type] < typeOrder[operations[j].Type]
+		return cmp.Compare(typeOrder[a.Type], typeOrder[b.Type])
 	})
 
 	for _, op := range operations {
@@ -795,7 +788,7 @@ func (m *Model) renderScopeDialog(styles Styles) string {
 	lines = append(lines, styles.Header.Render(" Scopes for "+dialog.pluginID+" "))
 	lines = append(lines, "")
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		checkbox := "[ ]"
 		if dialog.scopes[i] {
 			checkbox = "[x]"
@@ -841,24 +834,12 @@ func (m *Model) renderConfig(styles Styles) string {
 	header := styles.Header.Render(" " + m.config.title + " ")
 
 	// Content area
-	contentHeight := m.height - 4 // Account for header and help bar
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	contentHeight := max(m.height-4, 1) // Account for header and help bar
 
 	// Split content into lines and apply scroll
 	lines := strings.Split(m.config.content, "\n")
-	startLine := m.config.scroll
-	if startLine >= len(lines) {
-		startLine = len(lines) - 1
-		if startLine < 0 {
-			startLine = 0
-		}
-	}
-	endLine := startLine + contentHeight
-	if endLine > len(lines) {
-		endLine = len(lines)
-	}
+	startLine := min(m.config.scroll, max(len(lines)-1, 0))
+	endLine := min(startLine+contentHeight, len(lines))
 
 	visibleLines := lines[startLine:endLine]
 	content := strings.Join(visibleLines, "\n")

@@ -2,7 +2,9 @@
 package tui
 
 import (
-	"sort"
+	"cmp"
+	"maps"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -250,15 +252,6 @@ func firstScope(m map[claude.Scope]bool) claude.Scope {
 		return s
 	}
 	return claude.ScopeNone
-}
-
-// copyMap creates a shallow copy of a scope map.
-func copyMap(m map[claude.Scope]bool) map[claude.Scope]bool {
-	result := make(map[claude.Scope]bool, len(m))
-	for k, v := range m {
-		result[k] = v
-	}
-	return result
 }
 
 // MainState holds state for the main two-pane view.
@@ -532,18 +525,14 @@ func processInstalledPlugin(p claude.InstalledPlugin, allScopes claude.ScopeStat
 // sortAndGroupByMarketplace sorts and groups plugins by marketplace with headers.
 func sortAndGroupByMarketplace(byMarketplace map[string][]PluginState) []PluginState {
 	// Sort marketplace names
-	marketplaces := make([]string, 0, len(byMarketplace))
-	for marketplace := range byMarketplace {
-		marketplaces = append(marketplaces, marketplace)
-	}
-	sort.Strings(marketplaces)
+	marketplaces := slices.Sorted(maps.Keys(byMarketplace))
 
 	// Build result with headers
 	var result []PluginState
 	for _, marketplace := range marketplaces {
 		plugins := byMarketplace[marketplace]
-		sort.Slice(plugins, func(i, j int) bool {
-			return strings.ToLower(plugins[i].Name) < strings.ToLower(plugins[j].Name)
+		slices.SortFunc(plugins, func(a, b PluginState) int {
+			return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		})
 		result = append(result, PluginState{
 			Name:          marketplace,
@@ -613,7 +602,7 @@ func (m *Model) openScopeDialog(pluginID string, installedScopes map[claude.Scop
 	m.mode = ModeScopeDialog
 	m.main.scopeDialog = scopeDialogState{
 		pluginID:       pluginID,
-		originalScopes: copyMap(installedScopes),
+		originalScopes: maps.Clone(installedScopes),
 	}
 	// Initialize checkboxes from current installed scopes (presence, not enabled value)
 	_, m.main.scopeDialog.scopes[0] = installedScopes[claude.ScopeUser]
