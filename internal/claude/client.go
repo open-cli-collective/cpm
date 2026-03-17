@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -47,18 +48,35 @@ func (c *realClient) ListPlugins(includeAvailable bool) (*PluginList, error) {
 		args = append(args, "--available")
 	}
 
+	// Write stdout to a temp file instead of a pipe. The claude CLI (Node.js)
+	// can truncate pipe output at 64KB when the process exits before the OS
+	// pipe buffer is fully drained. File-based capture avoids this.
+	tmpFile, err := os.CreateTemp("", "cpm-plugins-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+
 	// #nosec G204 -- args are hardcoded, not user input
 	cmd := exec.Command(c.claudePath, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.Stdout = tmpFile
+	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("claude plugin list failed: %w: %s", err, stderr.String())
+	runErr := cmd.Run()
+	_ = tmpFile.Close()
+	if runErr != nil {
+		return nil, fmt.Errorf("claude plugin list failed: %w: %s", runErr, stderr.String())
+	}
+
+	stdout, err := os.ReadFile(tmpName) // #nosec G304 -- path from CreateTemp, not user input
+	if err != nil {
+		return nil, fmt.Errorf("failed to read plugin list output: %w", err)
 	}
 
 	var list PluginList
-	if err := json.Unmarshal(stdout.Bytes(), &list); err != nil {
+	if err := json.Unmarshal(stdout, &list); err != nil {
 		return nil, fmt.Errorf("failed to parse plugin list: %w", err)
 	}
 
