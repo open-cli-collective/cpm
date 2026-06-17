@@ -1860,9 +1860,11 @@ func TestUpdateScopeDialogUpDown(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeScopeDialog
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		cursor:         1,
-		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true},
+		pluginID: "test@marketplace",
+		cursor:   1,
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{claude.ScopeProject: true}},
+		},
 	}
 	m.keys = DefaultKeyBindings()
 
@@ -1904,10 +1906,12 @@ func TestUpdateScopeDialogSpaceToggle(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeScopeDialog
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		cursor:         0,
-		scopes:         [3]bool{false, false, false},
-		originalScopes: map[claude.Scope]bool{},
+		pluginID: "test@marketplace",
+		cursor:   0,
+		scopes:   [3]bool{false, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{}},
+		},
 	}
 
 	// Toggle on User scope
@@ -1946,9 +1950,11 @@ func TestUpdateScopeDialogEnter(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeScopeDialog
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		scopes:         [3]bool{true, false, false},
-		originalScopes: map[claude.Scope]bool{},
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 	m.keys = DefaultKeyBindings()
@@ -1982,9 +1988,11 @@ func TestUpdateScopeDialogEscape(t *testing.T) {
 	m := NewModel(client, "/test/project")
 	m.mode = ModeScopeDialog
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		scopes:         [3]bool{true, false, false},
-		originalScopes: map[claude.Scope]bool{},
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 	m.keys = DefaultKeyBindings()
@@ -2010,9 +2018,11 @@ func TestApplyScopeDialogDeltaCheckInstall(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		scopes:         [3]bool{true, false, false},
-		originalScopes: map[claude.Scope]bool{},
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 
@@ -2036,9 +2046,11 @@ func TestApplyScopeDialogDeltaCheckUninstall(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		scopes:         [3]bool{false, false, false},
-		originalScopes: map[claude.Scope]bool{claude.ScopeLocal: true},
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{false, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{claude.ScopeLocal: true}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 
@@ -2064,8 +2076,10 @@ func TestApplyScopeDialogDeltaMixed(t *testing.T) {
 	m.main.scopeDialog = scopeDialogState{
 		pluginID: "test@marketplace",
 		// Originally installed at Project and Local, now checking User and unchecking Project
-		scopes:         [3]bool{true, false, true},
-		originalScopes: map[claude.Scope]bool{claude.ScopeProject: true, claude.ScopeLocal: true},
+		scopes: [3]bool{true, false, true},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{claude.ScopeProject: true, claude.ScopeLocal: true}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 
@@ -2094,9 +2108,11 @@ func TestApplyScopeDialogDeltaNoChange(t *testing.T) {
 	client := &mockClient{}
 	m := NewModel(client, "/test/project")
 	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "test@marketplace",
-		scopes:         [3]bool{true, false, false},
-		originalScopes: map[claude.Scope]bool{claude.ScopeUser: true},
+		pluginID: "test@marketplace",
+		scopes:   [3]bool{true, false, false},
+		targets: []scopeDialogTarget{
+			{pluginID: "test@marketplace", originalScopes: map[claude.Scope]bool{claude.ScopeUser: true}},
+		},
 	}
 	m.main.pendingOps = make(map[string]Operation)
 	m.main.pendingOps["test@marketplace"] = Operation{PluginID: "test@marketplace", Type: OpInstall}
@@ -2106,40 +2122,6 @@ func TestApplyScopeDialogDeltaNoChange(t *testing.T) {
 	// Pending operation should be cleared
 	if len(m.main.pendingOps) > 0 {
 		t.Error("pending operation should be cleared when no changes")
-	}
-}
-
-// TestApplyScopeDialogDeltaTargetlessFallback explicitly exercises the
-// backward-compatible fallback in applyScopeDialogDelta: when the dialog has no
-// targets slice, the delta is computed from the top-level pluginID/originalScopes
-// fields instead. Production code always populates targets, so this guards the
-// fallback that direct scopeDialogState assignments (e.g. older tests) rely on.
-func TestApplyScopeDialogDeltaTargetlessFallback(t *testing.T) {
-	client := &mockClient{}
-	m := NewModel(client, "/test/project")
-	// No targets set — only the legacy top-level fields.
-	m.main.scopeDialog = scopeDialogState{
-		pluginID:       "legacy@marketplace",
-		scopes:         [3]bool{true, false, false},
-		originalScopes: map[claude.Scope]bool{},
-	}
-	m.main.pendingOps = make(map[string]Operation)
-
-	if len(m.main.scopeDialog.targets) != 0 {
-		t.Fatalf("precondition failed: targets should be empty, got %d", len(m.main.scopeDialog.targets))
-	}
-
-	m.applyScopeDialogDelta()
-
-	op, ok := m.main.pendingOps["legacy@marketplace"]
-	if !ok {
-		t.Fatal("expected pending operation derived from the targetless fallback")
-	}
-	if op.Type != OpInstall {
-		t.Errorf("Type = %v, want OpInstall", op.Type)
-	}
-	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
-		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
 	}
 }
 
@@ -2271,6 +2253,53 @@ func TestOpenScopeDialogForSelectedMultiSelectTargets(t *testing.T) {
 	}
 	if gotIDs["gamma@marketplace"] {
 		t.Error("gamma should not be a target (not bulk-selected)")
+	}
+}
+
+// TestOpenScopeDialogForSelectedFocusedNotInBulk verifies that when the focused
+// plugin is NOT part of the bulk selection, the dialog targets only the
+// bulk-selected plugins and the checkboxes seed from the first target's installed
+// scopes (alpha's) rather than the focused-but-unselected plugin's (gamma's).
+func TestOpenScopeDialogForSelectedFocusedNotInBulk(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeUser}, // first target -> should seed checkboxes
+		"beta":  {claude.ScopeProject},
+		"gamma": {claude.ScopeLocal}, // focused but not bulk-selected
+	})
+	// Bulk-select alpha and beta; gamma is intentionally excluded.
+	m.main.bulkSelected["alpha@marketplace"] = true
+	m.main.bulkSelected["beta@marketplace"] = true
+	// Focus gamma (index 3: header=0, alpha=1, beta=2, gamma=3).
+	m.selectedIdx = 3
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Fatalf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+
+	// Targets must be exactly the bulk selection, not the focused plugin.
+	if len(m.main.scopeDialog.targets) != 2 {
+		t.Fatalf("targets = %d, want 2 (only bulk-selected plugins)", len(m.main.scopeDialog.targets))
+	}
+	gotIDs := map[string]bool{}
+	for _, target := range m.main.scopeDialog.targets {
+		gotIDs[target.pluginID] = true
+	}
+	if !gotIDs["alpha@marketplace"] || !gotIDs["beta@marketplace"] {
+		t.Errorf("targets = %v, want alpha and beta", gotIDs)
+	}
+	if gotIDs["gamma@marketplace"] {
+		t.Error("gamma should not be a target (focused but not bulk-selected)")
+	}
+
+	// Checkboxes must reflect the first target (alpha: User) and NOT the focused
+	// gamma (Local). scopes indices: [0]=User, [1]=Project, [2]=Local.
+	if !m.main.scopeDialog.scopes[0] {
+		t.Error("User checkbox should be checked (alpha's installed scope seeds the dialog)")
+	}
+	if m.main.scopeDialog.scopes[2] {
+		t.Error("Local checkbox should be unchecked (gamma's scope must not seed the dialog)")
 	}
 }
 

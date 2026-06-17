@@ -298,14 +298,13 @@ type scopeDialogTarget struct {
 // scopeDialogState holds the state for the multi-scope dialog.
 //
 // The dialog can act on one or many plugins (when multiple are bulk-selected).
-// pluginID/originalScopes mirror the first target and drive checkbox
-// initialization and rendering; targets holds every plugin the dialog applies to.
+// pluginID mirrors the first target and drives the single-plugin title; targets
+// holds every plugin the dialog applies to, each carrying its own original scopes.
 type scopeDialogState struct {
-	originalScopes map[claude.Scope]bool // installed scopes before dialog (first target)
-	pluginID       string                // first target's plugin ID (drives rendering)
-	targets        []scopeDialogTarget   // all plugins the dialog applies to
-	cursor         int                   // highlighted row (0-2)
-	scopes         [3]bool               // checkbox state: [user, project, local]
+	pluginID string              // first target's plugin ID (drives rendering)
+	targets  []scopeDialogTarget // all plugins the dialog applies to
+	cursor   int                 // highlighted row (0-2)
+	scopes   [3]bool             // checkbox state: [user, project, local]
 }
 
 // ProgressState holds state for operation progress.
@@ -629,7 +628,6 @@ func (m *Model) openScopeDialogForTargets(targets []scopeDialogTarget, checkboxS
 	dialog := scopeDialogState{targets: targets}
 	if len(targets) > 0 {
 		dialog.pluginID = targets[0].pluginID
-		dialog.originalScopes = targets[0].originalScopes
 	}
 
 	// Initialize checkboxes from the seed scopes (presence, not enabled value).

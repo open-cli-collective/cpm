@@ -225,16 +225,7 @@ func (m *Model) updateScopeDialog(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) applyScopeDialogDelta() {
 	dialog := &m.main.scopeDialog
 
-	targets := dialog.targets
-	if len(targets) == 0 {
-		// Backward-compatible fallback for callers that set pluginID directly
-		// without a targets slice. Production code always populates targets via
-		// openScopeDialogForTargets; this path is covered by
-		// TestApplyScopeDialogDeltaTargetlessFallback.
-		targets = []scopeDialogTarget{{pluginID: dialog.pluginID, originalScopes: dialog.originalScopes}}
-	}
-
-	for _, target := range targets {
+	for _, target := range dialog.targets {
 		m.applyScopeDeltaForTarget(target, dialog.scopes)
 	}
 }
