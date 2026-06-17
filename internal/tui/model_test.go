@@ -2109,6 +2109,40 @@ func TestApplyScopeDialogDeltaNoChange(t *testing.T) {
 	}
 }
 
+// TestApplyScopeDialogDeltaTargetlessFallback explicitly exercises the
+// backward-compatible fallback in applyScopeDialogDelta: when the dialog has no
+// targets slice, the delta is computed from the top-level pluginID/originalScopes
+// fields instead. Production code always populates targets, so this guards the
+// fallback that direct scopeDialogState assignments (e.g. older tests) rely on.
+func TestApplyScopeDialogDeltaTargetlessFallback(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	// No targets set — only the legacy top-level fields.
+	m.main.scopeDialog = scopeDialogState{
+		pluginID:       "legacy@marketplace",
+		scopes:         [3]bool{true, false, false},
+		originalScopes: map[claude.Scope]bool{},
+	}
+	m.main.pendingOps = make(map[string]Operation)
+
+	if len(m.main.scopeDialog.targets) != 0 {
+		t.Fatalf("precondition failed: targets should be empty, got %d", len(m.main.scopeDialog.targets))
+	}
+
+	m.applyScopeDialogDelta()
+
+	op, ok := m.main.pendingOps["legacy@marketplace"]
+	if !ok {
+		t.Fatal("expected pending operation derived from the targetless fallback")
+	}
+	if op.Type != OpInstall {
+		t.Errorf("Type = %v, want OpInstall", op.Type)
+	}
+	if len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeUser {
+		t.Errorf("Scopes = %v, want [ScopeUser]", op.Scopes)
+	}
+}
+
 // TestRenderScopeDialog tests dialog rendering with checkbox display.
 // Verifies plugin-scope-mgmt.AC6.1 and AC6.4: Dialog renders with scope names and file paths.
 func TestRenderScopeDialog(t *testing.T) {

@@ -180,7 +180,7 @@ func (m *Model) openScopeDialogForSelected() {
 	checkboxScopes := targets[0].originalScopes
 	if focused := m.getSelectedPlugin(); focused != nil && !focused.IsGroupHeader {
 		if _, ok := m.main.bulkSelected[focused.ID]; ok || len(m.main.bulkSelected) == 0 {
-			checkboxScopes = focused.InstalledScopes
+			checkboxScopes = maps.Clone(focused.InstalledScopes)
 		}
 	}
 
@@ -227,7 +227,10 @@ func (m *Model) applyScopeDialogDelta() {
 
 	targets := dialog.targets
 	if len(targets) == 0 {
-		// Backward-compatible fallback for callers/tests that set pluginID directly.
+		// Backward-compatible fallback for callers that set pluginID directly
+		// without a targets slice. Production code always populates targets via
+		// openScopeDialogForTargets; this path is covered by
+		// TestApplyScopeDialogDeltaTargetlessFallback.
 		targets = []scopeDialogTarget{{pluginID: dialog.pluginID, originalScopes: dialog.originalScopes}}
 	}
 
