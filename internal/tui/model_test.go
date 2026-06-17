@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2167,6 +2168,217 @@ func TestRenderScopeDialog(t *testing.T) {
 	// Check help text
 	if !strings.Contains(output, "space") || !strings.Contains(output, "Enter") || !strings.Contains(output, "Esc") {
 		t.Error("output should contain help text with space, Enter, and Esc instructions")
+	}
+}
+
+// testModelMultiPlugin creates a Model with several plugins under one marketplace
+// header so bulk selection can be exercised. Each entry maps a plugin name to the
+// scopes it is installed at.
+func testModelMultiPlugin(plugins map[string][]claude.Scope) (*Model, *mockClient) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+
+	// Deterministic ordering for stable tests.
+	names := make([]string, 0, len(plugins))
+	for name := range plugins {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	states := []PluginState{
+		{Name: "marketplace", Marketplace: "marketplace", IsGroupHeader: true},
+	}
+	for _, name := range names {
+		scopeMap := make(map[claude.Scope]bool, len(plugins[name]))
+		for _, s := range plugins[name] {
+			scopeMap[s] = true
+		}
+		states = append(states, PluginState{
+			ID:              name + "@marketplace",
+			Name:            name,
+			Marketplace:     "marketplace",
+			InstalledScopes: scopeMap,
+		})
+	}
+
+	m.plugins = states
+	m.selectedIdx = 1 // first non-header plugin
+	return m, client
+}
+
+// TestOpenScopeDialogForSelectedMultiSelectTargets verifies that pressing S with
+// multiple plugins bulk-selected loads all of them as dialog targets, not just the
+// focused one. Regression test for issue #39.
+func TestOpenScopeDialogForSelectedMultiSelectTargets(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeLocal},
+		"beta":  {claude.ScopeProject},
+		"gamma": {claude.ScopeUser},
+	})
+	// Bulk-select alpha and beta only (gamma is left out).
+	m.main.bulkSelected["alpha@marketplace"] = true
+	m.main.bulkSelected["beta@marketplace"] = true
+
+	m.openScopeDialogForSelected()
+
+	if m.mode != ModeScopeDialog {
+		t.Fatalf("mode = %v, want ModeScopeDialog", m.mode)
+	}
+	if len(m.main.scopeDialog.targets) != 2 {
+		t.Fatalf("targets = %d, want 2 (only bulk-selected plugins)", len(m.main.scopeDialog.targets))
+	}
+
+	gotIDs := map[string]bool{}
+	for _, target := range m.main.scopeDialog.targets {
+		gotIDs[target.pluginID] = true
+	}
+	if !gotIDs["alpha@marketplace"] || !gotIDs["beta@marketplace"] {
+		t.Errorf("targets = %v, want alpha and beta", gotIDs)
+	}
+	if gotIDs["gamma@marketplace"] {
+		t.Error("gamma should not be a target (not bulk-selected)")
+	}
+}
+
+// TestOpenScopeDialogForSelectedFallsBackToFocused verifies the single-plugin UX:
+// with no bulk selection, S acts only on the focused plugin.
+func TestOpenScopeDialogForSelectedFallsBackToFocused(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeLocal},
+		"beta":  {claude.ScopeProject},
+	})
+	m.selectedIdx = 1 // focus alpha
+
+	m.openScopeDialogForSelected()
+
+	if len(m.main.scopeDialog.targets) != 1 {
+		t.Fatalf("targets = %d, want 1 (focused plugin only)", len(m.main.scopeDialog.targets))
+	}
+	if m.main.scopeDialog.targets[0].pluginID != "alpha@marketplace" {
+		t.Errorf("target = %q, want alpha@marketplace", m.main.scopeDialog.targets[0].pluginID)
+	}
+	if m.main.scopeDialog.pluginID != "alpha@marketplace" {
+		t.Errorf("pluginID = %q, want alpha@marketplace", m.main.scopeDialog.pluginID)
+	}
+}
+
+// TestApplyScopeDialogDeltaMultiSelectInstall verifies that confirming the dialog
+// applies the target scope set to ALL selected plugins, each relative to its own
+// installed scopes. The checkboxes represent the desired end state for the whole
+// selection. Core regression test for issue #39.
+func TestApplyScopeDialogDeltaMultiSelectInstall(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeLocal}, // already local
+		"beta":  {},                  // not installed anywhere
+	})
+	m.main.bulkSelected["alpha@marketplace"] = true
+	m.main.bulkSelected["beta@marketplace"] = true
+	m.openScopeDialogForSelected()
+
+	// Desired end state for everyone: Local only (index 2).
+	m.main.scopeDialog.scopes = [3]bool{false, false, true}
+
+	m.applyScopeDialogDelta()
+
+	// beta: had nothing, wants Local -> OpInstall [Local].
+	if op, ok := m.main.pendingOps["beta@marketplace"]; !ok {
+		t.Error("beta should have a pending op (Local added)")
+	} else if op.Type != OpInstall || len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeLocal {
+		t.Errorf("beta op = %+v, want OpInstall [Local]", op)
+	}
+
+	// alpha: Local already installed and is the only desired scope -> no change.
+	if _, ok := m.main.pendingOps["alpha@marketplace"]; ok {
+		t.Error("alpha should have no pending op (Local already installed, unchanged)")
+	}
+}
+
+// TestApplyScopeDialogDeltaMultiSelectUninstall verifies unchecking a scope removes
+// it from every selected plugin that had it.
+func TestApplyScopeDialogDeltaMultiSelectUninstall(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeLocal},
+		"beta":  {claude.ScopeLocal},
+	})
+	m.main.bulkSelected["alpha@marketplace"] = true
+	m.main.bulkSelected["beta@marketplace"] = true
+	m.openScopeDialogForSelected()
+
+	// Focused plugin (alpha) seeds checkboxes with Local checked; uncheck Local.
+	m.main.scopeDialog.scopes[2] = false
+
+	m.applyScopeDialogDelta()
+
+	for _, id := range []string{"alpha@marketplace", "beta@marketplace"} {
+		op, ok := m.main.pendingOps[id]
+		if !ok {
+			t.Errorf("%s should have a pending uninstall op", id)
+			continue
+		}
+		if op.Type != OpUninstall || len(op.Scopes) != 1 || op.Scopes[0] != claude.ScopeLocal {
+			t.Errorf("%s op = %+v, want OpUninstall [Local]", id, op)
+		}
+	}
+}
+
+// TestApplyScopeDialogDeltaMultiSelectPerTargetDelta verifies each target's delta is
+// computed against its own original scopes, producing different operation types for
+// plugins that started in different states.
+func TestApplyScopeDialogDeltaMultiSelectPerTargetDelta(t *testing.T) {
+	m, _ := testModelMultiPlugin(map[string][]claude.Scope{
+		"alpha": {claude.ScopeProject}, // has Project, not User
+		"beta":  {claude.ScopeUser},    // already has User
+	})
+	m.main.bulkSelected["alpha@marketplace"] = true
+	m.main.bulkSelected["beta@marketplace"] = true
+	m.openScopeDialogForSelected()
+
+	// Desired end state: User only (check User, uncheck everything else).
+	m.main.scopeDialog.scopes = [3]bool{true, false, false}
+
+	m.applyScopeDialogDelta()
+
+	// alpha: had Project, wants User only -> add User, remove Project => OpScopeChange.
+	alpha, ok := m.main.pendingOps["alpha@marketplace"]
+	if !ok {
+		t.Fatal("alpha should have a pending op")
+	}
+	if alpha.Type != OpScopeChange {
+		t.Errorf("alpha op type = %v, want OpScopeChange", alpha.Type)
+	}
+	if len(alpha.Scopes) != 1 || alpha.Scopes[0] != claude.ScopeUser {
+		t.Errorf("alpha install scopes = %v, want [User]", alpha.Scopes)
+	}
+	if len(alpha.UninstallScopes) != 1 || alpha.UninstallScopes[0] != claude.ScopeProject {
+		t.Errorf("alpha uninstall scopes = %v, want [Project]", alpha.UninstallScopes)
+	}
+
+	// beta: already at User, wants User only -> no change.
+	if _, ok := m.main.pendingOps["beta@marketplace"]; ok {
+		t.Error("beta should have no pending op (already at desired scope)")
+	}
+}
+
+// TestRenderScopeDialogMultiTargetTitle verifies the dialog title reflects a
+// multi-plugin selection.
+func TestRenderScopeDialogMultiTargetTitle(t *testing.T) {
+	client := &mockClient{}
+	m := NewModel(client, "/test/project")
+	m.width = 100
+	m.height = 30
+	m.mode = ModeScopeDialog
+	m.main.scopeDialog = scopeDialogState{
+		pluginID: "alpha@marketplace",
+		targets: []scopeDialogTarget{
+			{pluginID: "alpha@marketplace", originalScopes: map[claude.Scope]bool{}},
+			{pluginID: "beta@marketplace", originalScopes: map[claude.Scope]bool{}},
+		},
+	}
+
+	output := m.renderScopeDialog(m.styles)
+
+	if !strings.Contains(output, "2 selected plugins") {
+		t.Errorf("output should mention multi-plugin selection, got:\n%s", output)
 	}
 }
 

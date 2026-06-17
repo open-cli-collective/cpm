@@ -784,8 +784,13 @@ var scopeDialogLabels = [3]struct {
 func (m *Model) renderScopeDialog(styles Styles) string {
 	dialog := &m.main.scopeDialog
 
+	title := " Scopes for " + dialog.pluginID + " "
+	if n := len(dialog.targets); n > 1 {
+		title = fmt.Sprintf(" Scopes for %d selected plugins ", n)
+	}
+
 	var lines []string
-	lines = append(lines, styles.Header.Render(" Scopes for "+dialog.pluginID+" "))
+	lines = append(lines, styles.Header.Render(title))
 	lines = append(lines, "")
 
 	for i := range 3 {

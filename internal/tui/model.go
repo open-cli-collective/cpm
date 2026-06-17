@@ -286,12 +286,26 @@ type ConfigState struct {
 	scroll  int    // Scroll position
 }
 
-// scopeDialogState holds the state for the multi-scope dialog.
-type scopeDialogState struct {
-	originalScopes map[claude.Scope]bool // installed scopes before dialog
+// scopeDialogTarget holds one plugin the scope dialog will act on, along with
+// the scopes it was installed at before the dialog opened. Each target's delta
+// is computed against its own originalScopes so plugins with different starting
+// scopes are handled correctly.
+type scopeDialogTarget struct {
+	originalScopes map[claude.Scope]bool // installed scopes before dialog, for this plugin
 	pluginID       string
-	cursor         int     // highlighted row (0-2)
-	scopes         [3]bool // checkbox state: [user, project, local]
+}
+
+// scopeDialogState holds the state for the multi-scope dialog.
+//
+// The dialog can act on one or many plugins (when multiple are bulk-selected).
+// pluginID/originalScopes mirror the first target and drive checkbox
+// initialization and rendering; targets holds every plugin the dialog applies to.
+type scopeDialogState struct {
+	originalScopes map[claude.Scope]bool // installed scopes before dialog (first target)
+	pluginID       string                // first target's plugin ID (drives rendering)
+	targets        []scopeDialogTarget   // all plugins the dialog applies to
+	cursor         int                   // highlighted row (0-2)
+	scopes         [3]bool               // checkbox state: [user, project, local]
 }
 
 // ProgressState holds state for operation progress.
@@ -596,30 +610,46 @@ func (m *Model) toggleEnablement() {
 	}
 }
 
-// openScopeDialog transitions to the scope dialog for the given plugin.
+// openScopeDialog transitions to the scope dialog for a single plugin.
 // preToggle optionally toggles one scope before showing the dialog.
 func (m *Model) openScopeDialog(pluginID string, installedScopes map[claude.Scope]bool, preToggle *claude.Scope) {
+	m.openScopeDialogForTargets(
+		[]scopeDialogTarget{{pluginID: pluginID, originalScopes: maps.Clone(installedScopes)}},
+		installedScopes,
+		preToggle,
+	)
+}
+
+// openScopeDialogForTargets transitions to the scope dialog for one or more plugins.
+// checkboxScopes seeds the checkbox state (typically the focused plugin's scopes);
+// each target's pending operation is later computed against its own originalScopes.
+// preToggle optionally toggles one scope before showing the dialog.
+func (m *Model) openScopeDialogForTargets(targets []scopeDialogTarget, checkboxScopes map[claude.Scope]bool, preToggle *claude.Scope) {
 	m.mode = ModeScopeDialog
-	m.main.scopeDialog = scopeDialogState{
-		pluginID:       pluginID,
-		originalScopes: maps.Clone(installedScopes),
+	dialog := scopeDialogState{targets: targets}
+	if len(targets) > 0 {
+		dialog.pluginID = targets[0].pluginID
+		dialog.originalScopes = targets[0].originalScopes
 	}
-	// Initialize checkboxes from current installed scopes (presence, not enabled value)
-	_, m.main.scopeDialog.scopes[0] = installedScopes[claude.ScopeUser]
-	_, m.main.scopeDialog.scopes[1] = installedScopes[claude.ScopeProject]
-	_, m.main.scopeDialog.scopes[2] = installedScopes[claude.ScopeLocal]
+
+	// Initialize checkboxes from the seed scopes (presence, not enabled value).
+	_, dialog.scopes[0] = checkboxScopes[claude.ScopeUser]
+	_, dialog.scopes[1] = checkboxScopes[claude.ScopeProject]
+	_, dialog.scopes[2] = checkboxScopes[claude.ScopeLocal]
 
 	// Pre-toggle a scope if requested (e.g., pressing 'l' on multi-scope pre-checks local)
 	if preToggle != nil {
 		switch *preToggle {
 		case claude.ScopeUser:
-			m.main.scopeDialog.scopes[0] = !m.main.scopeDialog.scopes[0]
+			dialog.scopes[0] = !dialog.scopes[0]
 		case claude.ScopeProject:
-			m.main.scopeDialog.scopes[1] = !m.main.scopeDialog.scopes[1]
+			dialog.scopes[1] = !dialog.scopes[1]
 		case claude.ScopeLocal:
-			m.main.scopeDialog.scopes[2] = !m.main.scopeDialog.scopes[2]
+			dialog.scopes[2] = !dialog.scopes[2]
 		}
 	}
+
+	m.main.scopeDialog = dialog
 }
 
 // Update implements tea.Model.
