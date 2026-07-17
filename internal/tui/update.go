@@ -151,13 +151,40 @@ func (m *Model) handleOperationKeys(msg tea.KeyMsg, keys KeyBindings) {
 	}
 }
 
-// openScopeDialogForSelected opens the scope dialog for the currently selected plugin.
+// openScopeDialogForSelected opens the scope dialog for all bulk-selected plugins,
+// falling back to the focused plugin when nothing is multi-selected. The focused
+// plugin's installed scopes seed the dialog checkboxes; each target's pending
+// operation is computed against its own scopes when the dialog is confirmed.
 func (m *Model) openScopeDialogForSelected() {
-	plugin := m.getSelectedPlugin()
-	if plugin == nil || plugin.IsGroupHeader {
+	plugins := m.getSelectedPlugins()
+	if len(plugins) == 0 {
 		return
 	}
-	m.openScopeDialog(plugin.ID, plugin.InstalledScopes, nil)
+
+	targets := make([]scopeDialogTarget, 0, len(plugins))
+	for _, plugin := range plugins {
+		if plugin.IsGroupHeader {
+			continue
+		}
+		targets = append(targets, scopeDialogTarget{
+			pluginID:       plugin.ID,
+			originalScopes: maps.Clone(plugin.InstalledScopes),
+		})
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	// Seed checkboxes from the focused plugin when it is part of the selection,
+	// otherwise from the first target. This keeps the single-plugin UX unchanged.
+	checkboxScopes := targets[0].originalScopes
+	if focused := m.getSelectedPlugin(); focused != nil && !focused.IsGroupHeader {
+		if _, ok := m.main.bulkSelected[focused.ID]; ok || len(m.main.bulkSelected) == 0 {
+			checkboxScopes = maps.Clone(focused.InstalledScopes)
+		}
+	}
+
+	m.openScopeDialogForTargets(targets, checkboxScopes, nil)
 }
 
 // scopeDialogScopes maps cursor index to scope.
@@ -191,18 +218,30 @@ func (m *Model) updateScopeDialog(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyScopeDialogDelta computes the difference between original and current checkbox
-// state and generates pending operations.
+// applyScopeDialogDelta generates pending operations for every plugin the dialog
+// targets. The desired scope set (the checkboxes) is applied to each target
+// relative to that target's own original scopes, so plugins that started at
+// different scopes each get a correct install/uninstall/scope-change operation.
 func (m *Model) applyScopeDialogDelta() {
 	dialog := &m.main.scopeDialog
-	original := dialog.originalScopes
+
+	for _, target := range dialog.targets {
+		m.applyScopeDeltaForTarget(target, dialog.scopes)
+	}
+}
+
+// applyScopeDeltaForTarget computes the install/uninstall delta between a single
+// plugin's original scopes and the desired checkbox state, then records the
+// resulting pending operation (or clears it when there is no change).
+func (m *Model) applyScopeDeltaForTarget(target scopeDialogTarget, desired [3]bool) {
+	original := target.originalScopes
 
 	var installScopes []claude.Scope
 	var uninstallScopes []claude.Scope
 
 	for i, scope := range scopeDialogScopes {
 		_, wasChecked := original[scope] // presence check, not value (disabled-but-present = checked)
-		isChecked := dialog.scopes[i]
+		isChecked := desired[i]
 
 		if !wasChecked && isChecked {
 			installScopes = append(installScopes, scope)
@@ -213,7 +252,7 @@ func (m *Model) applyScopeDialogDelta() {
 
 	// No changes — clear any existing pending op
 	if len(installScopes) == 0 && len(uninstallScopes) == 0 {
-		m.clearPending(dialog.pluginID)
+		m.clearPending(target.pluginID)
 		return
 	}
 
@@ -224,16 +263,16 @@ func (m *Model) applyScopeDialogDelta() {
 	switch {
 	case len(uninstallScopes) > 0 && len(installScopes) == 0:
 		// Pure uninstall (partial or full)
-		m.main.pendingOps[dialog.pluginID] = Operation{
-			PluginID:       dialog.pluginID,
+		m.main.pendingOps[target.pluginID] = Operation{
+			PluginID:       target.pluginID,
 			Scopes:         uninstallScopes,
 			OriginalScopes: maps.Clone(original),
 			Type:           OpUninstall,
 		}
 	case len(installScopes) > 0 && len(uninstallScopes) == 0:
 		// Pure install (adding scopes)
-		m.main.pendingOps[dialog.pluginID] = Operation{
-			PluginID:       dialog.pluginID,
+		m.main.pendingOps[target.pluginID] = Operation{
+			PluginID:       target.pluginID,
 			Scopes:         installScopes,
 			OriginalScopes: maps.Clone(original),
 			Type:           OpInstall,
@@ -242,8 +281,8 @@ func (m *Model) applyScopeDialogDelta() {
 		// Mixed: both install and uninstall — use OpScopeChange
 		// This carries both install and uninstall scope lists.
 		// Phase 7 execution handles uninstalls first, then installs.
-		m.main.pendingOps[dialog.pluginID] = Operation{
-			PluginID:        dialog.pluginID,
+		m.main.pendingOps[target.pluginID] = Operation{
+			PluginID:        target.pluginID,
 			Scopes:          installScopes,
 			UninstallScopes: uninstallScopes,
 			OriginalScopes:  maps.Clone(original),
