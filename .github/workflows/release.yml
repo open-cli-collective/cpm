@@ -27,4 +27,20 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Locate Homebrew cask
+        id: homebrew
+        shell: bash
+        run: |
+          set -euo pipefail
+          cask="$(find dist -name 'cpm.rb' -print -quit)"
+          [ -n "$cask" ] || { echo '::error::cpm.rb not found in dist'; exit 1; }
+          echo "cask=$cask" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Homebrew cask
+        uses: open-cli-collective/.github/actions/homebrew-alias@v1
+        with:
+          canonical-cask-file: ${{ steps.homebrew.outputs.cask }}
+          canonical-token: cpm
+          tap-repo: open-cli-collective/homebrew-tap
+          tap-token: ${{ secrets.TAP_GITHUB_TOKEN }}

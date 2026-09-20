@@ -58,17 +58,17 @@ archives:
 # Homebrew cask with auto-quarantine removal for unsigned binaries
 homebrew_casks:
   - name: cpm
+    skip_upload: true
     repository:
       owner: open-cli-collective
       name: homebrew-tap
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/open-cli-collective/cpm
     description: "TUI for managing Claude Code plugins"
-    binary: cpm
+    binaries: [cpm]
     hooks:
       post:
         install: |
-          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cpm"]
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "cpm"], base: :staged_path
     caveats: |
       cpm has been installed. Run 'cpm --help' for usage.
 
