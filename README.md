@@ -21,12 +21,6 @@ A terminal user interface for managing Claude Code plugins with clear visibility
 brew install open-cli-collective/tap/cpm
 ```
 
-### Chocolatey (Windows)
-
-```powershell
-choco install cpm
-```
-
 ### WinGet (Windows)
 
 ```powershell
