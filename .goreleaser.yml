@@ -55,6 +55,22 @@ archives:
       - LICENSE
       - README.md
 
+nfpms:
+  - id: cpm
+    package_name: cpm
+    vendor: Open CLI Collective
+    homepage: https://github.com/open-cli-collective/cpm
+    maintainer: Open CLI Collective <open-cli-collective@users.noreply.github.com>
+    description: TUI for managing Claude Code plugins
+    license: MIT
+    formats: [deb, rpm, archlinux]
+    # Keep tar entry timestamps aligned with pacman integrity metadata.
+    mtime: "{{ .CommitDate }}"
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/cpm/LICENSE
+
 # Homebrew cask with auto-quarantine removal for unsigned binaries
 homebrew_casks:
   - name: cpm

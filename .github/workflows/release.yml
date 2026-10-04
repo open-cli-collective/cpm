@@ -44,3 +44,22 @@ jobs:
           canonical-token: cpm
           tap-repo: open-cli-collective/homebrew-tap
           tap-token: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+  linux-packages:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Dispatch Linux packages
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_PACKAGES_DISPATCH_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          jq -nc --arg version "$VERSION" \
+            '{event_type:"package-release",client_payload:{package:"cpm",version:$version,repo:"open-cli-collective/cpm"}}' \
+            | gh api --method POST repos/open-cli-collective/linux-packages/dispatches --input -
+      - name: Report Linux publication failure
+        if: failure()
+        run: echo 'Linux package dispatch failed; see this job for details.' >> "$GITHUB_STEP_SUMMARY"
