@@ -33,6 +33,8 @@ jobs:
         with:
           version: v2.18.2
           args: release --snapshot --clean --skip=before --config ${{ matrix.config }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
       - name: Verify both Arch architectures were rendered
         shell: bash
         run: |
