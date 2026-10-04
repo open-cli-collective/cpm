@@ -37,6 +37,10 @@ go install github.com/open-cli-collective/cpm/cmd/cpm@latest
 
 Download the latest release from the [releases page](https://github.com/open-cli-collective/cpm/releases/latest).
 
+### Arch Linux / Omarchy
+
+Add the signed [Open CLI Collective pacman repository](https://github.com/open-cli-collective/linux-packages#arch-linux-pacman), then install with `sudo pacman -Syu cpm`. Linux packages publish on new releases.
+
 ## Usage
 
 ```bash
