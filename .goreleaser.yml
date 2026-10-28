@@ -83,8 +83,8 @@ homebrew_casks:
     binaries: [cpm]
     hooks:
       post:
-        install: |
-          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "cpm"], base: :staged_path
+        install_steps: |
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/cpm"]
     caveats: |
       cpm has been installed. Run 'cpm --help' for usage.
 
