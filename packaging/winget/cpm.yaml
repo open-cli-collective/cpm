@@ -1,7 +1,8 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.28.0.schema.json
 PackageIdentifier: OpenCLICollective.cpm
 PackageVersion: "$version$"
 PackageName: cpm
+PackageLocale: en-US
 Publisher: open-cli-collective
 License: MIT
 ShortDescription: TUI for managing Claude Code plugins with clear scope visibility
@@ -26,4 +27,4 @@ Installers:
       - RelativeFilePath: cpm.exe
         PortableCommandAlias: cpm
 ManifestType: singleton
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0
