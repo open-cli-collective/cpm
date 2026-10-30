@@ -2,6 +2,7 @@
 PackageIdentifier: OpenCLICollective.cpm
 PackageVersion: "$version$"
 PackageName: cpm
+PackageLocale: en-US
 Publisher: open-cli-collective
 License: MIT
 ShortDescription: TUI for managing Claude Code plugins with clear scope visibility
