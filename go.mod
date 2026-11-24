@@ -1,8 +1,8 @@
 module github.com/open-cli-collective/cpm
 
-go 1.25.0
+go 1.27.0
 
-toolchain go1.26.10
+toolchain go1.27.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
